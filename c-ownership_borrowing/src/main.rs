@@ -2,7 +2,8 @@ fn main() {
     // copy_example();
     // move_example()
     // demo_transfer();
-    test_consume_return();
+    // test_consume_return();
+    basic_borrowing();
 }
 
 fn copy_example() {
@@ -74,5 +75,51 @@ fn return_data(data: String) -> String {
     data // returning the data
 }
 
+fn basic_borrowing() {
+    // let data = String::from("Original data");
 
-// borrowing tomorrow
+    // let borrow1 = &data;
+    // let borrow2 = &data;
+    // let borrow3 = &data;
+
+    // println!("Original data: {}", data);
+    // println!("Borrowed 1: {}", borrow1);
+    // println!("Borrowed 2: {}", borrow2);
+    // println!("Borrowed 3: {}", borrow3);
+
+    // read_data(&data);
+    // read_data(&data);
+
+    // println!("After reading data, original data is still: {}", data);
+
+
+    let mut mutable_data = String::from("Mutable data");
+    
+    let borrowed_data = &mutable_data;
+    println!("Borrowed data: {}", borrowed_data);
+
+    mutable_borrow(&mut mutable_data); //error
+
+    // let another_borrow = &mut mutable_data;
+    // println!("Another borrowed data: {}", another_borrow);
+
+
+    // println!("First Borrow: {}", borrowed_data);
+
+    println!("After mutable borrow, original data is: {}", mutable_data);
+
+}
+
+fn read_data(data: &String) {
+    println!("Reading data: {}", data);
+}
+
+// single mutable borrow at one time
+
+fn mutable_borrow(data: &mut String) {
+    data.push_str(", I am modifying the data");
+    // println!("Modified data: {}", data);
+
+    // let another_mut = &mut data;
+
+}

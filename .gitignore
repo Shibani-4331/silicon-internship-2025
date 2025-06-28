@@ -1,3 +1,10 @@
-a-variables/target
-b-control_flow/target
-c-ownership_borrowing/target
+*/target
+a-variables/target/*
+b-control-flow/target/*
+c-ownership_borrowing/target/*
+d-collections/target/*
+e-structs_enums/target/*
+f-generics/target/*
+g-traits/target/*
+h-error_handling/target/*
+i-test_and_file_operation/target/*
