@@ -1,10 +1,11 @@
 use axum::{
-    body::Body, http::{Request, StatusCode}, middleware::{self as axum_middleware}, response::Response, routing::{get, post}, Form, Json, Router
+    body::Body, http::{HeaderValue, Request, StatusCode}, middleware::{self as axum_middleware}, response::Response, routing::{get, post}, Form, Json, Router
 };
 use serde::Deserialize;
 use std::net::SocketAddr;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing_subscriber::{EnvFilter};
+use axum::http::header::{AUTHORIZATION, ACCEPT};
 
 use crate::utils::config;
 
@@ -35,6 +36,7 @@ async fn main() {
 
     let user_router: Router = Router::new()
         .route("/login", post(user_login_handler))
+        .route("/verify", get(jwt_handler))
         .route_layer(axum_middleware::from_fn(middleware::auth::jwt_auth));
 
     let admin_router: Router = Router::new()
@@ -74,7 +76,7 @@ async fn main() {
         );
 
         // Enable CORS
-        let app = app.layer(CorsLayer::permissive());
+        let app = app.layer(CorsLayer::very_permissive());
 
     // Define the address to listen on.
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
@@ -124,15 +126,16 @@ async fn gen_basic_auth_handler(Json(payload): Json<GenBasicAuthPayload>) -> Str
 
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct GenJwtPayload {
     username: String,
-    #[serde(rename = "userType")]
+    // #[serde(rename = "userType")]
     user_type: String,
 }
 
 async fn gen_jwt_handler(Json(payload): Json<GenJwtPayload>) -> String {
     // This handler would generate a JWT token.
-    let token = utils::jwt::create_jwt_token(payload.username.clone(), payload.user_type.clone());
+    let token = utils::jwt::create_jwt_token(payload.username.clone(), payload.user_type.clone(), "member".to_string());
     tracing::info!("Generated JWT Token: {}", token);
     token
 }
@@ -149,7 +152,7 @@ async fn user_login_handler(Form(payload): Form<GenBasicAuthPayload>) -> (Status
     }
 
     // Generate JWT token for the user.
-    let token = utils::jwt::create_jwt_token(payload.username.clone(), "user".to_string());
+    let token = utils::jwt::create_jwt_token(payload.username.clone(), "user".to_string(), "member".to_string());
     tracing::info!("Generated JWT Token for user: {}", token);
     (StatusCode::OK, token)
 }

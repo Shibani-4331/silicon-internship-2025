@@ -32,5 +32,24 @@ pub fn verify_basic_auth_token(
     expected_username: &str,
     expected_password: &str,
 ) -> bool {
-    todo!("Verify Basic Token")
+    let token = token.trim_start_matches("Basic ").trim();
+    let decoded_b64 = match BASE64_STANDARD.decode(token) {
+        Ok(decoded) => decoded,
+        Err(_) => return false,
+    };
+
+    let decoded_str = match String::from_utf8(decoded_b64) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    let parts: Vec<&str> = decoded_str.splitn(2, ":").collect();
+    let username = parts.get(0);
+    let password = parts.get(1);
+
+    if let (Some(username),Some(pass)) = (username, password) {
+        return *username == expected_username && *pass == expected_password;
+    }
+
+    false
 }

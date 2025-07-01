@@ -11,6 +11,7 @@ pub struct Claims {
     pub iat: usize,
     pub sub: String,
     pub user_type: String,
+    pub user_role: String
 }
 
 
@@ -25,8 +26,22 @@ pub struct Claims {
 /// # Returns
 ///
 /// A JWT token string.
-pub fn create_jwt_token(sub: String, user_type: String) -> String {
-    todo!("Create JWT Token")
+pub fn create_jwt_token(sub: String, user_type: String, user_role: String) -> String {
+    let issued_at = Utc::now();
+    let expiration = issued_at + Duration::days(1); // Token valid for 1 day
+
+    let claims = Claims {
+        exp: expiration.timestamp() as usize,
+        iat: issued_at.timestamp() as usize,
+        sub,
+        user_type,
+        user_role,
+    };
+
+    let header = Header::new(jsonwebtoken::Algorithm::HS256);
+    let encoding_key = EncodingKey::from_secret(config::JWT_SECRET_KEY.as_ref());
+
+    encode(&header, &claims, &encoding_key).unwrap()
 }
 
 /// Verifies a JWT token.
@@ -39,5 +54,7 @@ pub fn create_jwt_token(sub: String, user_type: String) -> String {
 ///
 /// `true` if the token is valid, `false` otherwise.
 pub fn verify_jwt_token(token: &str) -> bool {
-    todo!("Verify JWT Token")
+    let decoding_key = DecodingKey::from_secret(config::JWT_SECRET_KEY.as_ref());
+    let algorithm = Validation::new(jsonwebtoken::Algorithm::HS256);
+    decode::<Claims>(token, &decoding_key, &algorithm).is_ok()
 }
