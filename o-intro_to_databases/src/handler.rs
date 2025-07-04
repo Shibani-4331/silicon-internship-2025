@@ -1,7 +1,8 @@
 use axum::{extract::{Path, Query, State}, http::StatusCode, response::IntoResponse, Json};
 use serde::{Deserialize, Serialize};
+use sqlx::{Pool, Postgres};
 
-use crate::{book::{Book}};
+use crate::book::{self, add_book, delete_book, get_books_list, search_books, update_book, Book };
 
 
 /// Represents parameters for searching books.
@@ -19,100 +20,119 @@ pub struct CreateBook {
     pub author: Option<String>,
 }
 
-pub async fn list_books() -> Json<Option<Vec<Book>>> {
-    let shared_books = books.read().unwrap().clone();
+pub async fn list_books_handler(
+    State(connection): State<Pool<Postgres>>) -> impl IntoResponse {
+    let book_list = get_books_list(&connection).await.map_err(|err| {
+        eprintln!("Error fetching books: {}", err);
+        (StatusCode::INTERNAL_SERVER_ERROR).into_response()
+    });
 
-    // Connection to DB
-    // Query Execute
-    // Struct 
-    Json(Some(shared_books))
+    let books = match book_list {
+        Ok(Some(books)) => {
+            books
+        },
+        _ => {
+            vec![]
+        }
+    };
+
+    Json(books).into_response()
 }
 
-pub async fn get_book(
-    Path(id): Path<u32>) -> impl IntoResponse {
-    let shared_books = books.read().unwrap().clone();
+pub async fn get_book_handler(
+    Path(id): Path<i32>, State(connection): State<Pool<Postgres>>) -> impl IntoResponse {
+    
+    let book_details = book::get_book_by_id(&connection, id).await.map_err(|err| {
+        eprintln!("Error fetching books: {}", err);
+        (StatusCode::INTERNAL_SERVER_ERROR).into_response()
+    });
 
-    if let Some(book) = shared_books.iter().find(|b| b.id == id) {
-        Json(book).into_response()
-    } else {
-        (StatusCode::NOT_FOUND, "Book not found").into_response()
+    match book_details {
+        Ok(Some(book)) => {
+            Json(book).into_response()
+        },
+        _ => {
+            (StatusCode::NOT_FOUND, "Book not found").into_response()
+        }
     }
 }
 
-pub async fn add_book(
+// #[axum::debug_handler]
+pub async fn add_book_handler(
+    State(connection): State<Pool<Postgres>>,
     Json(new_book): Json<CreateBook>
-) -> impl IntoResponse {
+)-> impl IntoResponse {
     if new_book.title.is_none() || new_book.author.is_none() {
         return (StatusCode::BAD_REQUEST, "Title and author are required").into_response();
     }
 
-    let mut books_writer = books.write().unwrap();
-    let next_id = books_writer.iter().map(|book|  book.id).max().unwrap_or(0) + 1;
+    let result = add_book(&connection, new_book.title.unwrap(), new_book.author.unwrap()).await;
 
-    let book = Book {
-        id: next_id,
-        title: new_book.title.unwrap(),
-        author: new_book.author.unwrap(),
-    };
-
-    books_writer.push(book.clone());
-    (StatusCode::CREATED, Json(book)).into_response()
+    match result {
+        Ok(_) => {
+            StatusCode::CREATED.into_response()
+        },
+        Err(err) => {
+            eprintln!("Error adding book: {}", err);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
 }
 
-pub async fn update_book(
-    Path(id): Path<u32>,
+#[axum::debug_handler]
+pub async fn update_book_handler(
+    Path(id): Path<i32>,
+    State(connection): State<Pool<Postgres>>,
     Json(updated_book): Json<CreateBook>
 ) -> impl IntoResponse {
     if updated_book.title.is_none() || updated_book.author.is_none() {
-        return (StatusCode::BAD_REQUEST, "Title and author are required");
+        return (StatusCode::BAD_REQUEST, "Title and author are required").into_response();
     }
 
-    let mut books_writer = books.write().unwrap();
-    let mut found = false;
+    let result = update_book(&connection, Book {
+        id,
+        title: updated_book.title.unwrap(),
+        author: updated_book.author.unwrap(),
+    }).await;
 
-    for book in books_writer.iter_mut() {
-        if book.id == id {
-            book.title = updated_book.title.unwrap();
-            book.author = updated_book.author.unwrap();
-            found = true;
-            break;
+    match result {
+        Ok(_) => {
+            StatusCode::OK.into_response()
+        },
+        Err(err) => {
+            eprintln!("Error updating book: {}", err);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+pub async fn delete_book_handler(
+    Path(id): Path<i32>, 
+    State(connection): State<Pool<Postgres>>
+) -> StatusCode {
+    match delete_book(&connection, id).await {
+        Ok(_) => {
+            StatusCode::NO_CONTENT
+        },
+        Err(err) => {
+            eprintln!("Error deleting book: {}", err);
+            StatusCode::INTERNAL_SERVER_ERROR
         }
     }
 
-    if found {
-        return (StatusCode::OK, "Book Updated successfully");
-    } 
-
-    (StatusCode::NOT_FOUND, "Book not found")
 }
 
-pub async fn delete_book(
-    Path(id): Path<u32>, 
-) -> impl IntoResponse {
-    let mut books_writer = books.write().unwrap();
-    let book_count = books_writer.len();
+pub async fn search_books_handler(Query(params): Query<SearchParams>, State(connection): State<Pool<Postgres>>) -> Json<Vec<Book>> {
+    let search_term = params.title;
 
-    books_writer.retain(|book| book.id != id);
-
-    if books_writer.len() < book_count {
-        return (StatusCode::OK, "Book deleted successfully");
-    }
-
-    (StatusCode::NOT_FOUND, "Book not found")
-
-}
-
-pub async fn search_books(Query(params): Query<SearchParams>) -> Json<Vec<Book>> {
-    let books_reader = books.read().unwrap();
-    let filtered_books = books_reader.iter()
-    .filter(|book| {
-        if let Some(title) = &params.title {
-            book.title.to_lowercase().contains(title.to_lowercase().as_str())
-        } else {
-            true
+    match search_books(&connection, search_term).await {
+        Ok(books) => {
+            return Json(books);
+        },
+        Err(err) => {
+            eprintln!("Error searching books: {}", err);
+            return Json(vec![]);
         }
-    })
-    .cloned().collect();
-    Json(filtered_books)
+    }
 }
 
