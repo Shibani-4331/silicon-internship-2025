@@ -1,0 +1,14 @@
+[package]
+name = "q-database_migrations"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+sea-orm = { version = "1.1.13", features = ["sqlx-postgres", "runtime-tokio-rustls", "macros"] }
+dotenvy = "0.15.7"
+chrono = { version = "0.4", features = ["serde"] }
+openssl = { version = "0.10", features = ["vendored"] }
+
+[dev-dependencies]
+sea-orm-cli = "1.1.13"
