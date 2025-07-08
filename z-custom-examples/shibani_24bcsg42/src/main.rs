@@ -20,14 +20,14 @@ struct Duplicategroup{
 
 
 fn hash_sha256(path: &Path) -> Option<String> {
-    let file = File::open(path).ok()?;//it tries to open a file to  read
-    let mut hasher = Sha256::new();//creates a new SHA256 hasher to feed data
-    let mut reader = BufReader::new(file);//creates a buffered reader for efficient reading
-    let mut buffer = [0; 1024];//creates a buffer for reading file data like 1KB at a time
+    let file = File::open(path).ok()?;
+    let mut hasher = Sha256::new();
+    let mut reader = BufReader::new(file);
+    let mut buffer = [0; 1024];
     while let Ok(bytes_read) = reader.read(&mut buffer) {
         if bytes_read == 0 {
             break;
-        }//read the file continuously and update the hasher
+        }
         hasher.update(&buffer[..bytes_read]);
     }
     Some(format!("{:x}", hasher.finalize()))
@@ -60,26 +60,42 @@ fn hash_xxhash64(path: &Path) -> Option<String> {
 }
 
 
-fn find_folder_recursive
+fn find_folder_recursive(folder_name: &str, start_dir: &Path) -> Option<PathBuf> {
+    for entry in WalkDir::new(start_dir).max_depth(5).into_iter().filter_map(|e| e.ok()) {
+        let path = entry.path();
+        if path.is_dir() && path.file_name().map_or(false, |name| name == folder_name) {
+            return Some(path.to_path_buf());
+        }
+    }
+    None
+}
+
 
 fn main() {
-    println!("Enter folder name: ");
-    let mut folder_name = String::new();
-    io::stdin().read_line(&mut folder_name).unwrap();
-    let folder_name = folder_name.trim();
-    let folder_path = Path::new(".").join(folder_name);
+    println!(" Enter folder name: ");
+    let mut folder_input = String::new();
+    io::stdin().read_line(&mut folder_input).unwrap();
+    let folder_input = folder_input.trim();
 
-    if !folder_path.exists() || !folder_path.is_dir() {
-        println!("Folder '{}' not found.", folder_name);
-        return;
-    }
+    let current_dir = Path::new("D:\\");
+    let folder_path = find_folder_recursive(folder_input, current_dir);
 
-    // Set filters
-    let min_size: u64 = 1024; // 1 KB
-    let max_size: u64 = 10 * 1024 * 1024; // 10 MB
+    let folder_path = match folder_path {
+        Some(path) => path,
+        None => {
+            println!(" Folder '{}' not found in system up to 5 levels.", folder_input);
+            return;
+        }
+    };
+
+    println!(" Found folder at: {}", folder_path.display());
+
+
+    let min_size: u64 = 1024;
+    let max_size: u64 = 10 * 1024 * 1024;
     let allowed_extensions = vec!["txt", "rs", "jpg", "png", "mp4", "zip"];
 
-    // Walk through folder recursively with filtering
+    
     let file_paths: Vec<PathBuf> = WalkDir::new(&folder_path)
         .into_iter()
         .filter_map(|e| e.ok())
@@ -106,8 +122,8 @@ fn main() {
         .map(|e| e.path().to_path_buf())
         .collect();
 
-        // Hash and group files
-    let hashes: Vec<_> = file_paths
+        
+        let hashes: Vec<_> = file_paths
         .par_iter()
         .filter_map(|path| {
             let ext = path.extension()?.to_string_lossy().to_lowercase();
@@ -115,16 +131,16 @@ fn main() {
                 "txt" | "rs" => hash_sha256(path),
                 "jpg" | "jpeg" | "png" | "mp4" => hash_blake3(path),
                 "exe" | "zip" => hash_xxhash64(path),
-                _ => hash_sha256(path), // default
+                _ => hash_sha256(path), 
             }?;
             Some((hash, path.display().to_string()))
         })
         .collect();
         
          let mut map: HashMap<String, Vec<String>> = HashMap::new();
-    for (hash, path) in hashes {
-        map.entry(hash).or_default().push(path);
-    }
+        for (hash, path) in hashes {
+            map.entry(hash).or_default().push(path);
+        }
 
     let duplicates: Vec<Duplicategroup> = map
         .into_iter()
@@ -132,17 +148,18 @@ fn main() {
         .map(|(hash, files)| Duplicategroup { hash, files })
         .collect();
 
-    // Output JSON report
+    
     if duplicates.is_empty() {
-        println!(" No duplicate files found.");
-    } else {
+        println!("No duplicate files found.");
+    } 
+    else {
         let json = serde_json::to_string_pretty(&duplicates).unwrap();
         fs::write("duplicate_report.json", json).unwrap();
-        println!(" Duplicate report saved to 'duplicate_report.json'");
+        println!("Duplicate report saved to 'duplicate_report.json'");
 
 
-         // Ask for delete confirmation
-        print!(" Do you want to delete duplicate copies (keep 1 each)? (y/n): ");
+         
+        print!("Do you want to delete duplicate copies (keep 1 each)? (y/n): ");
         io::stdout().flush().unwrap();
         let mut answer = String::new();
         io::stdin().read_line(&mut answer).unwrap();
@@ -152,16 +169,16 @@ fn main() {
             for group in &duplicates {
                 for dup in &group.files[1..] {
                     if let Err(e) = fs::remove_file(dup) {
-                        println!(" Could not delete {}: {}", dup, e);
+                        println!("Could not delete {}: {}", dup, e);
                     } else {
-                        println!("🗑 Deleted: {}", dup);
+                        println!("Deleted: {}", dup);
                         deleted_count += 1;
                     }
                 }
             }
-            println!(" Deleted {} duplicate files.", deleted_count);
+            println!("Deleted {} duplicate files.", deleted_count);
         } else {
-            println!(" No files were deleted.");
+            println!("No files were deleted.");
         }
     }
 
