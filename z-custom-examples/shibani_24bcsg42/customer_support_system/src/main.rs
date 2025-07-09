@@ -7,8 +7,6 @@ use sea_orm::{Database};
 use dotenvy::dotenv;
 
 
-
-
 #[tokio::main]
 async fn main() {
     dotenv().ok();
