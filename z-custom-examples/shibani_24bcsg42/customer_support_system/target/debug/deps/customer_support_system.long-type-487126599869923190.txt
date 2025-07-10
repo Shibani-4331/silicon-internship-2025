@@ -1,0 +1,2 @@
+fn({type error}, axum::Json<CreateUserInput>) -> impl std::future::Future<Output = Result<axum::Json<CreateUserOutput>, (StatusCode, std::string::String)>> {routes::create_user}
+fn({type error}, axum::Json<CreateUserInput>) -> impl std::future::Future<Output = Result<axum::Json<CreateUserOutput>, (StatusCode, std::string::String)>> {routes::create_user}: Handler<_, _>

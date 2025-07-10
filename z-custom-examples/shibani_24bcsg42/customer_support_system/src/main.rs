@@ -1,10 +1,15 @@
 use axum::{
     Router,
-    routing::get,
 };
 use std::env;
 use sea_orm::{Database};
 use dotenvy::dotenv;
+use crate::app_state::AppState;
+use std::sync::Arc;
+
+mod routes; 
+mod app_state;
+mod entity;
 
 
 #[tokio::main]
@@ -16,8 +21,16 @@ async fn main() {
         .expect("Failed to connect to database");
 
 
+    let state = AppState {
+        db: Arc::new(db)
+    };
+
     let app = Router::new()
-    .route("/", get(|| async { "server is running" }));
+    .nest("/", routes::routes())
+    .with_state(state);
+
+
+
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
