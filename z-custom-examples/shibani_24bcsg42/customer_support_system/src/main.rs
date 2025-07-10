@@ -26,7 +26,7 @@ async fn main() {
     };
 
     let app = Router::new()
-    .nest("/", routes::routes())
+    .merge(routes::routes())
     .with_state(state);
 
 

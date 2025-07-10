@@ -5,6 +5,7 @@ use sea_orm::{
     ActiveModelTrait
 };
 use uuid::Uuid;
+use chrono::{DateTime, Utc};
 
 #[derive(Debug, Clone, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "users")]
@@ -13,7 +14,8 @@ pub struct Model {
     pub id: Uuid,
     pub email: String,
     pub name: String,
-    pub created_at: DateTimeUtc,
+    #[sea_orm(timestamp)]
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
