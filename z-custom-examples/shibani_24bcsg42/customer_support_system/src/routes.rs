@@ -1,91 +1,52 @@
 use axum::{
-    routing::{post, get},
-    extract::{State},
     Router,
-    http::StatusCode,
-    Json,
+    routing::{post, put, delete, get},
+}
+use crate::handlers::{
+    customers,
+    users,
+    tickets,
+    communications,
+    knowledge_base,
+    tags,
+    analytics,
+    audit_logs,
 };
-use sea_orm::{EntityTrait, Set, ActiveModelTrait, DatabaseConnection};
-use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use sqlx::types::chrono::Utc;
-use sea_orm::prelude::Uuid;
-use crate::entity::users::ActiveModel;
-use crate::{app_state::AppState, entity::users};
+use crate::app_state::AppState;
 
-pub use users::Entity as UserEntity;
-
-
-#[derive(Deserialize)]
-struct CreateUserInput {
-    email: String,
-    name: String,
-}
-
-#[derive(Serialize)]
-struct UserResponse {
-    id: Uuid,
-    email: String,
-    name: String,
-}
 
 pub fn routes() -> Router<AppState> {
     Router::new()
-        .route("/", get(root_handler))
-        .route("/users", post(create_user))
-        .route("/users", get(get_users))
-}
+         // ---------- Users ----------
+        .route("/users", post(users::create_user).get(users::get_users))
+        .route("/users/:id", put(users::update_user).delete(users::delete_user))
 
-pub async fn root_handler() -> &'static str {
-    "Welcome to the User API"
-}
+        // ---------- Customers ----------
+        .route("/customers", post(customers::create_customer).get(customers::get_customers))
+        .route("/customers/:id", put(customers::update_customer).delete(customers::delete_customer))
 
- pub async fn create_user(
-    State(state): State<AppState>,
-    Json(input): Json<CreateUserInput>,
-) -> Result<Json<UserResponse>, (StatusCode, String)> {
-    let user = users::ActiveModel {
-        id: Set(Uuid::new_v4()),
-        email: Set(input.email),
-        name: Set(input.name),
-        created_at:Set(Utc::now().into())
-    };
+        // ---------- Tickets ----------
+        .route("/tickets", post(tickets::create_ticket).get(tickets::get_tickets))
+        .route("/tickets/:id", put(tickets::update_ticket).delete(tickets::delete_ticket))
 
-    let db = &state.db;
-    let res = ActiveModel::insert(user, db.as_ref())
-        .await
-        .map_err(|e| {
-            eprintln!("Failed to create user: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, "Failed to create user".into())
-    })?;
+        // ---------- Communications ----------
+        .route("/communications", post(communications::create_communication).get(communications::get_communications))
+        .route("/communications/:id", delete(communications::delete_communication))
 
-    Ok(Json(UserResponse {
-        id: res.id,
-        email: res.email,
-        name: res.name,
-    }))
-}
+        // ---------- Knowledge Base ----------
+        .route("/kb", post(knowledge_base::create_article).get(knowledge_base::get_articles))
+        .route("/kb/:id", put(knowledge_base::update_article).delete(knowledge_base::delete_article))
 
-pub async fn get_users(
-    State(state): State<AppState>,
-) -> Result<Json<Vec<UserResponse>>, (StatusCode, String)> {
-    let db = &state.db;
-    let users = users::Entity::find()
-        .all(db.as_ref())
-        .await
-        .map_err(|e| {
-            eprintln!("Failed to retrieve users: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, "Failed to retrieve users".into())
-        })?;
+        // ---------- Tags ----------
+        .route("/tags", post(tags::create_tag).get(tags::get_tags))
+        .route("/tags/:id", delete(tags::delete_tag))
 
-     let response = users
-        .into_iter()
-        .map(|user| UserResponse {
-            id: user.id,
-            email: user.email,
-            name: user.name,
-        })
-        .collect();
+        // ---------- Analytics ----------
+        .route("/analytics", post(analytics::create_analytics).get(analytics::get_analytics))
+        .route("/analytics/:id", put(analytics::update_analytics).delete(analytics::delete_analytics))
 
-    Ok(Json(response))
+        // ---------- Audit Logs ----------
+        .route("/audit-logs", post(audit_logs::create_log).get(audit_logs::get_logs))
+        .route("/audit-logs/:id", delete(audit_logs::delete_log))
+
 }
