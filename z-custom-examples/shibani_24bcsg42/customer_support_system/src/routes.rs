@@ -29,15 +29,15 @@ struct UserResponse {
     name: String,
 }
 
-pub async fn root_handler() -> &'static str {
-    "Welcome to the User API"
-}
-
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/", get(root_handler))
         .route("/users", post(create_user))
         .route("/users", get(get_users))
+}
+
+pub async fn root_handler() -> &'static str {
+    "Welcome to the User API"
 }
 
  pub async fn create_user(
