@@ -718,6 +718,7 @@ dependencies = [
  "chrono",
  "dotenvy",
  "jsonwebtoken",
+ "once_cell",
  "sea-orm",
  "sea-orm-cli",
  "serde",
