@@ -88,3 +88,13 @@ pub fn generate_jwt(user_id: &str, role: &str) -> String {
     )
     .expect("Token creation failed")
 }
+
+
+//verify
+pub fn require_role(user: &AuthUser, required_role: &str) -> Result<(), (StatusCode, String)> {
+    if user.role != required_role {
+        Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()))
+    } else {
+        Ok(())
+    }
+}   

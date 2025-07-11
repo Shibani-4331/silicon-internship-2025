@@ -27,8 +27,12 @@ use crate::entity::knowledge_base::Entity as KBEntity;
 use crate::entity::tags::Entity as TagEntity;
 use crate::entity::analytics::Entity as AnalyticsEntity;
 use crate::entity::audit_logs::Entity as AuditLogEntity;
-use crate::auth::generate_jwt;
+use crate::auth::{generate_jwt, AuthUser, require_role};
 
+
+pub async fn root_handler() -> &'static str {
+    "Welcome to the User API"
+}
 
 //-----------login--------------
 #[derive(Deserialize)]
@@ -81,12 +85,7 @@ pub struct UserResponse {
     id: Uuid,
     email: String,
     name: String,
-}
-
-
-
-pub async fn root_handler() -> &'static str {
-    "Welcome to the User API"
+    role: String,
 }
 
  pub async fn create_user(
@@ -114,12 +113,16 @@ pub async fn root_handler() -> &'static str {
         id: res.id,
         email: res.email,
         name: res.name,
+        role: res.role,
     }))
 }
-
+use crate::auth;
 pub async fn get_users(
     State(state): State<AppState>,
+    _auth_user: auth::AuthUser,
 ) -> Result<Json<Vec<UserResponse>>, (StatusCode, String)> {
+    require_role(&_auth_user, "admin")?;
+
     let db = &state.db;
     let users = UserEntity::find()
         .all(db.as_ref())
@@ -135,6 +138,7 @@ pub async fn get_users(
             id: user.id,
             email: user.email,
             name: user.name,
+            role: user.role,
         })
         .collect();
 
@@ -174,6 +178,7 @@ let user = UserEntity::find_by_id(id)
         id: res.id,
         email: res.email,
         name: res.name,
+        role: res.role,
     }))
 }
 
@@ -238,6 +243,7 @@ pub async fn create_customer(
 // READ ALL
 pub async fn get_customers(
     State(state): State<AppState>,
+    _auth: AuthUser, // Assuming AuthUser is a middleware for authentication
 ) -> Result<Json<Vec<CustomerResponse>>, (StatusCode, String)> {
     let db = &state.db;
     let list = CustomerEntity::find().all(db.as_ref()).await.map_err(|e| {
@@ -358,6 +364,46 @@ pub async fn create_ticket(
         customer_id: saved.customer_id,
         assigned_agent_id: saved.assigned_agent_id,
     }))
+}
+
+
+//ASSIGNED_AGENT_ID
+#[derive(Deserialize)]
+pub struct AssignInput {
+    pub agent_id: String,
+}
+
+pub async fn assign_ticket(
+    Path(ticket_id): Path<String>,
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Json(input): Json<AssignInput>,
+) -> Result<Json<String>, (StatusCode, String)> {
+    require_role(&auth, "admin")?;
+
+    let uuid = uuid::Uuid::parse_str(&ticket_id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid UUID".to_string()))?;
+
+    let db = &state.db;
+    let mut ticket = tickets::Entity::find_by_id(uuid)
+        .one(db.as_ref())
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "DB error".into()))?
+        .ok_or((StatusCode::NOT_FOUND, "Ticket not found".into()))?;
+
+    ticket.assigned_agent_id = Some(uuid::Uuid::parse_str(&input.agent_id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid agent UUID".into()))?);
+
+    let mut active: tickets::ActiveModel = ticket.clone().into();
+    active.assigned_agent_id = Set(ticket.assigned_agent_id);
+
+    
+    active
+        .update(db.as_ref())
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Update failed".into()))?;
+
+    Ok(Json("Agent assigned successfully".into()))
 }
 
 // READ ALL
