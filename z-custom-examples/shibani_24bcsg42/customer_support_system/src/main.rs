@@ -11,6 +11,10 @@ mod routes;
 mod app_state;
 mod entity;
 mod API;
+use entity::prelude::*;
+
+
+
 
 #[tokio::main]
 async fn main() {

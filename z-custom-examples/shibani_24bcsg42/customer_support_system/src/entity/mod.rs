@@ -3,3 +3,11 @@
 pub mod prelude;
 
 pub mod users;
+pub mod customers;
+pub mod tickets;
+pub mod communications;
+pub mod knowledge_base;
+pub mod tags;
+pub mod analytics;
+pub mod audit_logs;
+

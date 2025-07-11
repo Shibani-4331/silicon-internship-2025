@@ -1,28 +1,48 @@
-
-
 use axum::{
-    routing::{post, get},
-    extract::{State},
+    extract::{State, Path},
     Router,
     http::StatusCode,
     Json,
 };
+use chrono::{NaiveDate, Duration}; 
 use sea_orm::{EntityTrait, Set, ActiveModelTrait, DatabaseConnection};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use sqlx::types::chrono::Utc;
 use sea_orm::prelude::Uuid;
-use crate::{app_state::AppState, entity::users};
+use crate::{app_state::AppState};
+use crate::entity::prelude::*;
+use crate::entity::users;
+use crate::entity::customers;
+use crate::entity::tickets;
+use crate::entity::communications;
+use crate::entity::knowledge_base;
+use crate::entity::tags;
+use crate::entity::analytics;   
+use crate::entity::audit_logs;
+use crate::entity::users::Entity as UserEntity;
+use crate::entity::customers::Entity as CustomerEntity;
+use crate::entity::tickets::Entity as TicketEntity;
+use crate::entity::communications::Entity as CommunicationEntity;
+use crate::entity::knowledge_base::Entity as KBEntity;
+use crate::entity::tags::Entity as TagEntity;
+use crate::entity::analytics::Entity as AnalyticsEntity;
+use crate::entity::audit_logs::Entity as AuditLogEntity;
+
+
 
 
 #[derive(Deserialize)]
-struct CreateUserInput {
+pub struct CreateUserInput {
     email: String,
     name: String,
+    password_hash: String,
+    role: String,
 }
+use sea_orm::IntoActiveModel;
+
 
 #[derive(Serialize)]
-struct UserResponse {
+pub struct UserResponse {
     id: Uuid,
     email: String,
     name: String,
@@ -42,11 +62,13 @@ pub async fn root_handler() -> &'static str {
         id: Set(Uuid::new_v4()),
         email: Set(input.email),
         name: Set(input.name),
-        created_at:Set(Utc::now().into())
+        password_hash: Set(input.password_hash.to_string()),
+        role: Set(input.role.to_string()),
+        created_at: Set(Utc::now().into())
     };
 
     let db = &state.db;
-    let res = ActiveModel::insert(user, db.as_ref())
+    let res = users::ActiveModel::insert(user, db.as_ref())
         .await
         .map_err(|e| {
             eprintln!("Failed to create user: {}", e);
@@ -64,7 +86,7 @@ pub async fn get_users(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<UserResponse>>, (StatusCode, String)> {
     let db = &state.db;
-    let users = users::Entity::find()
+    let users = UserEntity::find()
         .all(db.as_ref())
         .await
         .map_err(|e| {
@@ -90,16 +112,25 @@ pub async fn update_user(
     Json(input): Json<CreateUserInput>,
 ) -> Result<Json<UserResponse>, (StatusCode, String)> {
     let db = &state.db;
-    let mut user = UserEntity::find_by_id(id)
-        .await?
-        .ok_or((StatusCode::NOT_FOUND, "User not found".to_string()))?
-        .into_active_model();
+    use axum::http::StatusCode;
 
-    user.email = Set(input.email);
-    user.name = Set(input.name);
-    user.updated_at = Set(Utc::now().into());
+let user = UserEntity::find_by_id(id)
+    .one(db.as_ref())
+    .await
+    .map_err(|err| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Database error: {}", err),
+        )
+    })?;
 
-    let res = user.update(db).await.map_err(|e| {
+
+    let mut active_user: users::ActiveModel = user.unwrap().into();
+    active_user.email = Set(input.email);
+    active_user.name = Set(input.name);
+    active_user.created_at = Set(Utc::now()); 
+
+    let res = active_user.update(db.as_ref()).await.map_err(|e| {
         eprintln!("Failed to update user: {}", e);
         (StatusCode::INTERNAL_SERVER_ERROR, "Update failed".into())
     })?;
@@ -117,7 +148,7 @@ pub async fn delete_user(
 ) -> Result<StatusCode, (StatusCode, String)> {
     let db = &state.db;
     UserEntity::delete_by_id(id)
-        .exec(db)
+        .exec(db.as_ref())
         .await
         .map_err(|e| {
             eprintln!("Failed to delete user: {}", e);
@@ -156,7 +187,7 @@ pub async fn create_customer(
     };
 
     let db = &state.db;
-    let res = customer.insert(db).await.map_err(|e| {
+    let res = customer.insert(db.as_ref()).await.map_err(|e| {
         eprintln!("Error creating customer: {}", e);
         (StatusCode::INTERNAL_SERVER_ERROR, "Could not create customer".into())
     })?;
@@ -174,7 +205,7 @@ pub async fn get_customers(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<CustomerResponse>>, (StatusCode, String)> {
     let db = &state.db;
-    let list = CustomerEntity::find().all(db).await.map_err(|e| {
+    let list = CustomerEntity::find().all(db.as_ref()).await.map_err(|e| {
         eprintln!("Error fetching customers: {}", e);
         (StatusCode::INTERNAL_SERVER_ERROR, "Could not fetch customers".into())
     })?;
@@ -196,7 +227,7 @@ pub async fn update_customer(
     Json(input): Json<CreateCustomerInput>,
 ) -> Result<Json<CustomerResponse>, (StatusCode, String)> {
     let db = &state.db;
-    let record = CustomerEntity::find_by_id(id).one(db).await.map_err(|e| {
+    let record = CustomerEntity::find_by_id(id).one(db.as_ref()).await.map_err(|e| {
         eprintln!("Find error: {}", e);
         (StatusCode::INTERNAL_SERVER_ERROR, "Could not find customer".into())
     })?;
@@ -207,7 +238,7 @@ pub async fn update_customer(
     model.email = Set(input.email);
     model.phone = Set(input.phone);
 
-    let updated = model.update(db).await.map_err(|e| {
+    let updated = model.update(db.as_ref()).await.map_err(|e| {
         eprintln!("Update error: {}", e);
         (StatusCode::INTERNAL_SERVER_ERROR, "Could not update customer".into())
     })?;
@@ -226,7 +257,7 @@ pub async fn delete_customer(
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, (StatusCode, String)> {
     let db = &state.db;
-    CustomerEntity::delete_by_id(id).exec(db).await.map_err(|e| {
+    CustomerEntity::delete_by_id(id).exec(db.as_ref()).await.map_err(|e| {
         eprintln!("Deletion error: {}", e);
         (StatusCode::INTERNAL_SERVER_ERROR, "Could not delete customer".into())
     })?;
@@ -277,7 +308,7 @@ pub async fn create_ticket(
         updated_at: Set(Utc::now().into()),
     };
 
-    let saved = ticket.insert(db).await.map_err(|e| {
+    let saved = ticket.insert(db.as_ref()).await.map_err(|e| {
         eprintln!("Failed to insert ticket: {}", e);
         (StatusCode::INTERNAL_SERVER_ERROR, "Ticket creation failed".into())
     })?;
@@ -299,7 +330,7 @@ pub async fn get_tickets(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<TicketResponse>>, (StatusCode, String)> {
     let db = &state.db;
-    let tickets = TicketEntity::find().all(db).await.map_err(|e| {
+    let tickets = TicketEntity::find().all(db.as_ref()).await.map_err(|e| {
         eprintln!("Failed to fetch tickets: {}", e);
         (StatusCode::INTERNAL_SERVER_ERROR, "Fetch error".into())
     })?;
@@ -325,7 +356,7 @@ pub async fn update_ticket(
     Json(input): Json<CreateTicketInput>,
 ) -> Result<Json<TicketResponse>, (StatusCode, String)> {
     let db = &state.db;
-    let record = TicketEntity::find_by_id(id).one(db).await.map_err(|e| {
+    let record = TicketEntity::find_by_id(id).one(db.as_ref()).await.map_err(|e| {
         eprintln!("Fetch failed: {}", e);
         (StatusCode::INTERNAL_SERVER_ERROR, "Ticket not found".into())
     })?;
@@ -341,7 +372,7 @@ pub async fn update_ticket(
     model.assigned_agent_id = Set(input.assigned_agent_id);
     model.updated_at = Set(Utc::now().into());
 
-    let updated = model.update(db).await.map_err(|e| {
+    let updated = model.update(db.as_ref()).await.map_err(|e| {
         eprintln!("Update failed: {}", e);
         (StatusCode::INTERNAL_SERVER_ERROR, "Could not update".into())
     })?;
@@ -364,7 +395,7 @@ pub async fn delete_ticket(
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, (StatusCode, String)> {
     let db = &state.db;
-    TicketEntity::delete_by_id(id).exec(db).await.map_err(|e| {
+    TicketEntity::delete_by_id(id).exec(db.as_ref()).await.map_err(|e| {
         eprintln!("Delete failed: {}", e);
         (StatusCode::INTERNAL_SERVER_ERROR, "Could not delete ticket".into())
     })?;
@@ -418,7 +449,7 @@ pub async fn create_communication(
         timestamp: Set(Utc::now().into()),
     };
 
-    let saved = model.insert(db).await.map_err(|e| {
+    let saved = model.insert(db.as_ref()).await.map_err(|e| {
         eprintln!("Create error: {}", e);
         (StatusCode::INTERNAL_SERVER_ERROR, "Insert failed".into())
     })?;
@@ -439,7 +470,7 @@ pub async fn get_communications(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<CommunicationResponse>>, (StatusCode, String)> {
     let db = &state.db;
-    let list = CommunicationEntity::find().all(db).await.map_err(|e| {
+    let list = CommunicationEntity::find().all(db.as_ref()).await.map_err(|e| {
         eprintln!("Fetch error: {}", e);
         (StatusCode::INTERNAL_SERVER_ERROR, "Could not fetch communications".into())
     })?;
@@ -463,7 +494,7 @@ pub async fn delete_communication(
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, (StatusCode, String)> {
     let db = &state.db;
-    CommunicationEntity::delete_by_id(id).exec(db).await.map_err(|e| {
+    CommunicationEntity::delete_by_id(id).exec(db.as_ref()).await.map_err(|e| {
         eprintln!("Delete error: {}", e);
         (StatusCode::INTERNAL_SERVER_ERROR, "Could not delete communication".into())
     })?;
@@ -504,7 +535,7 @@ pub async fn create_article(
         created_at: Set(Utc::now().into()),
     };
 
-    let saved = article.insert(db).await.map_err(|e| {
+    let saved = article.insert(db.as_ref()).await.map_err(|e| {
         eprintln!("Insert error: {}", e);
         (StatusCode::INTERNAL_SERVER_ERROR, "Could not create article".into())
     })?;
@@ -524,7 +555,7 @@ pub async fn get_articles(
 ) -> Result<Json<Vec<ArticleResponse>>, (StatusCode, String)> {
     let db = &state.db;
 
-    let list = KBEntity::find().all(db).await.map_err(|e| {
+    let list = KBEntity::find().all(db.as_ref()).await.map_err(|e| {
         eprintln!("Fetch error: {}", e);
         (StatusCode::INTERNAL_SERVER_ERROR, "Could not fetch articles".into())
     })?;
@@ -548,7 +579,7 @@ pub async fn update_article(
 ) -> Result<Json<ArticleResponse>, (StatusCode, String)> {
     let db = &state.db;
 
-    let record = KBEntity::find_by_id(id).one(db).await.map_err(|e| {
+    let record = KBEntity::find_by_id(id).one(db.as_ref()).await.map_err(|e| {
         eprintln!("Find error: {}", e);
         (StatusCode::INTERNAL_SERVER_ERROR, "Could not find article".into())
     })?;
@@ -560,7 +591,7 @@ pub async fn update_article(
     model.category = Set(input.category);
     model.created_by = Set(input.created_by);
 
-    let updated = model.update(db).await.map_err(|e| {
+    let updated = model.update(db.as_ref()).await.map_err(|e| {
         eprintln!("Update error: {}", e);
         (StatusCode::INTERNAL_SERVER_ERROR, "Could not update article".into())
     })?;
@@ -581,7 +612,7 @@ pub async fn delete_article(
 ) -> Result<StatusCode, (StatusCode, String)> {
     let db = &state.db;
 
-    KBEntity::delete_by_id(id).exec(db).await.map_err(|e| {
+    KBEntity::delete_by_id(id).exec(db.as_ref()).await.map_err(|e| {
         eprintln!("Deletion error: {}", e);
         (StatusCode::INTERNAL_SERVER_ERROR, "Could not delete article".into())
     })?;
@@ -589,16 +620,7 @@ pub async fn delete_article(
     Ok(StatusCode::NO_CONTENT)
 }
 
-use axum::{
-    extract::{Path, State},
-    http::StatusCode,
-    Json,
-};
-use sea_orm::{EntityTrait, ActiveModelTrait, Set};
-use sea_orm::prelude::Uuid;
-use serde::{Deserialize, Serialize};
-use crate::{AppState, entity::tags};
-pub use tags::Entity as TagEntity;
+
 
 #[derive(Deserialize)]
 pub struct CreateTagInput {
@@ -626,7 +648,7 @@ pub async fn create_tag(
         tag_name: Set(input.tag_name.clone()),
     };
 
-    let saved = tag.insert(db).await.map_err(|e| {
+    let saved = tag.insert(db.as_ref()).await.map_err(|e| {
         eprintln!("Insert error: {}", e);
         (StatusCode::INTERNAL_SERVER_ERROR, "Could not create tag".into())
     })?;
@@ -644,7 +666,7 @@ pub async fn get_tags(
 ) -> Result<Json<Vec<TagResponse>>, (StatusCode, String)> {
     let db = &state.db;
 
-    let list = TagEntity::find().all(db).await.map_err(|e| {
+    let list = TagEntity::find().all(db.as_ref()).await.map_err(|e| {
         eprintln!("Fetch error: {}", e);
         (StatusCode::INTERNAL_SERVER_ERROR, "Could not fetch tags".into())
     })?;
@@ -665,7 +687,7 @@ pub async fn delete_tag(
 ) -> Result<StatusCode, (StatusCode, String)> {
     let db = &state.db;
 
-    TagEntity::delete_by_id(id).exec(db).await.map_err(|e| {
+    TagEntity::delete_by_id(id).exec(db.as_ref()).await.map_err(|e| {
         eprintln!("Delete error: {}", e);
         (StatusCode::INTERNAL_SERVER_ERROR, "Could not delete tag".into())
     })?;
@@ -678,7 +700,7 @@ pub struct CreateAnalyticsInput {
     pub date: NaiveDate,
     pub total_tickets: i32,
     pub resolved_tickets: i32,
-    pub avg_response_time: Duration,
+    pub avg_response_time: i64,
     pub agent_id: Uuid,
 }
 
@@ -688,7 +710,7 @@ pub struct AnalyticsResponse {
     pub date: NaiveDate,
     pub total_tickets: i32,
     pub resolved_tickets: i32,
-    pub avg_response_time: Duration,
+    pub avg_response_time: i64,
     pub agent_id: Uuid,
 }
 
@@ -708,7 +730,7 @@ pub async fn create_analytics(
         agent_id: Set(input.agent_id),
     };
 
-    let saved = analytics.insert(db).await.map_err(|e| {
+    let saved = analytics.insert(db.as_ref()).await.map_err(|e| {
         eprintln!("Error creating analytics: {}", e);
         (StatusCode::INTERNAL_SERVER_ERROR, "Insert failed".into())
     })?;
@@ -729,7 +751,7 @@ pub async fn get_analytics(
 ) -> Result<Json<Vec<AnalyticsResponse>>, (StatusCode, String)> {
     let db = &state.db;
 
-    let list = AnalyticsEntity::find().all(db).await.map_err(|e| {
+    let list = AnalyticsEntity::find().all(db.as_ref()).await.map_err(|e| {
         eprintln!("Fetch error: {}", e);
         (StatusCode::INTERNAL_SERVER_ERROR, "Could not fetch analytics".into())
     })?;
@@ -754,7 +776,7 @@ pub async fn update_analytics(
 ) -> Result<Json<AnalyticsResponse>, (StatusCode, String)> {
     let db = &state.db;
 
-    let record = AnalyticsEntity::find_by_id(id).one(db).await.map_err(|e| {
+    let record = AnalyticsEntity::find_by_id(id).one(db.as_ref()).await.map_err(|e| {
         eprintln!("Find error: {}", e);
         (StatusCode::INTERNAL_SERVER_ERROR, "Could not find analytics".into())
     })?;
@@ -767,7 +789,7 @@ pub async fn update_analytics(
     model.avg_response_time = Set(input.avg_response_time);
     model.agent_id = Set(input.agent_id);
 
-    let updated = model.update(db).await.map_err(|e| {
+    let updated = model.update(db.as_ref()).await.map_err(|e| {
         eprintln!("Update error: {}", e);
         (StatusCode::INTERNAL_SERVER_ERROR, "Could not update analytics".into())
     })?;
@@ -789,7 +811,7 @@ pub async fn delete_analytics(
 ) -> Result<StatusCode, (StatusCode, String)> {
     let db = &state.db;
 
-    AnalyticsEntity::delete_by_id(id).exec(db).await.map_err(|e| {
+    AnalyticsEntity::delete_by_id(id).exec(db.as_ref()).await.map_err(|e| {
         eprintln!("Deletion error: {}", e);
         (StatusCode::INTERNAL_SERVER_ERROR, "Could not delete analytics".into())
     })?;
@@ -824,17 +846,17 @@ pub async fn create_log(
 ) -> Result<Json<AuditLogResponse>, (StatusCode, String)> {
     let db = &state.db;
 
-    let log = ActiveModel {
+    let log = audit_logs::ActiveModel {
         id: Set(Uuid::new_v4()),
         user_id: Set(input.user_id),
         action: Set(input.action.clone()),
         entity: Set(input.entity.clone()),
         entity_id: Set(input.entity_id),
         timestamp: Set(Utc::now().into()),
-        ip_address: Set(input.ip_address.clone().parse().unwrap_or(Ipv4Addr::LOCALHOST)),
+        ip_address: Set(input.ip_address.to_string()),
     };
 
-    let saved = log.insert(db).await.map_err(|e| {
+    let saved = log.insert(db.as_ref()).await.map_err(|e| {
         eprintln!("Insert error: {}", e);
         (StatusCode::INTERNAL_SERVER_ERROR, "Could not create log".into())
     })?;
@@ -856,7 +878,7 @@ pub async fn get_logs(
 ) -> Result<Json<Vec<AuditLogResponse>>, (StatusCode, String)> {
     let db = &state.db;
 
-    let list = AuditLogEntity::find().all(db).await.map_err(|e| {
+    let list = AuditLogEntity::find().all(db.as_ref()).await.map_err(|e| {
         eprintln!("Fetch error: {}", e);
         (StatusCode::INTERNAL_SERVER_ERROR, "Could not fetch logs".into())
     })?;
@@ -881,7 +903,7 @@ pub async fn delete_log(
 ) -> Result<StatusCode, (StatusCode, String)> {
     let db = &state.db;
 
-    AuditLogEntity::delete_by_id(id).exec(db).await.map_err(|e| {
+    AuditLogEntity::delete_by_id(id).exec(db.as_ref()).await.map_err(|e| {
         eprintln!("Deletion error: {}", e);
         (StatusCode::INTERNAL_SERVER_ERROR, "Could not delete log".into())
     })?;
