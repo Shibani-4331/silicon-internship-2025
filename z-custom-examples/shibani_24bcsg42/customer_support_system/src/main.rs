@@ -10,8 +10,9 @@ use std::sync::Arc;
 mod routes; 
 mod app_state;
 mod entity;
-mod API;
+mod api;
 use entity::prelude::*;
+mod auth;
 
 
 

@@ -2,7 +2,7 @@ use axum::{
     Router,
     routing::{post, put, delete, get}
 };
-use crate::API::{
+use crate::api::{
     create_user, get_users, update_user, delete_user,
     create_customer, get_customers, update_customer, delete_customer,
     create_ticket, get_tickets, update_ticket, delete_ticket,
@@ -10,7 +10,8 @@ use crate::API::{
     create_article, get_articles, update_article, delete_article,
     create_tag, get_tags, delete_tag,
     create_analytics, get_analytics, update_analytics, delete_analytics,
-    create_log, get_logs, delete_log
+    create_log, get_logs, delete_log,
+    login_user
 };
 use crate::app_state::AppState;
 
@@ -18,7 +19,9 @@ use crate::app_state::AppState;
 
 pub fn routes() -> Router<AppState> {
     Router::new()
-         // ---------- Users ----------
+        // ---------- Authentication ----------
+        .route("/login", post(login_user))
+        // ---------- Users ----------
         .route("/users", post(create_user).get(get_users))
         .route("/users/:id", put(update_user).delete(delete_user))
 

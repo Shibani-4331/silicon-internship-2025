@@ -5,7 +5,7 @@ use axum::{
     Json,
 };
 use chrono::{NaiveDate, Duration}; 
-use sea_orm::{EntityTrait, Set, ActiveModelTrait, DatabaseConnection};
+use sea_orm::{EntityTrait, Set, ActiveModelTrait, DatabaseConnection, QueryFilter, ColumnTrait};
 use serde::{Deserialize, Serialize};
 use sqlx::types::chrono::Utc;
 use sea_orm::prelude::Uuid;
@@ -27,10 +27,45 @@ use crate::entity::knowledge_base::Entity as KBEntity;
 use crate::entity::tags::Entity as TagEntity;
 use crate::entity::analytics::Entity as AnalyticsEntity;
 use crate::entity::audit_logs::Entity as AuditLogEntity;
+use crate::auth::generate_jwt;
 
 
+//-----------login--------------
+#[derive(Deserialize)]
+pub struct LoginInput {
+    pub email: String,
+    pub password: String,
+}
+
+#[derive(Serialize)]
+pub struct LoginResponse {
+    pub token: String,
+}
+
+pub async fn login_user(
+    State(state): State<AppState>,
+    Json(input): Json<LoginInput>,
+) -> Result<Json<LoginResponse>, (StatusCode, String)> {
+    use crate::entity::users;
+
+    let user = users::Entity::find()
+        .filter(users::Column::Email.eq(input.email.clone()))
+        .one(state.db.as_ref())
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "DB error".into()))?
+        .ok_or((StatusCode::UNAUTHORIZED, "Invalid email".into()))?;
 
 
+    if input.password != user.password_hash {
+        return Err((StatusCode::UNAUTHORIZED, "Invalid password".into()));
+    }
+
+    let token = crate::auth::generate_jwt(&user.id.to_string(), &user.role);
+
+    Ok(Json(LoginResponse { token }))
+}
+
+//----------user----------------
 #[derive(Deserialize)]
 pub struct CreateUserInput {
     email: String,
@@ -157,7 +192,7 @@ pub async fn delete_user(
     Ok(StatusCode::NO_CONTENT)
 }
 
-
+//----------customer----------------
 #[derive(Deserialize)]
 pub struct CreateCustomerInput {
     pub name: String,
@@ -265,7 +300,7 @@ pub async fn delete_customer(
     Ok(StatusCode::NO_CONTENT)
 }
 
-
+//----------ticket----------------
 #[derive(Deserialize)]
 pub struct CreateTicketInput {
     pub title: String,
@@ -403,6 +438,8 @@ pub async fn delete_ticket(
     Ok(StatusCode::NO_CONTENT)
 }
 
+
+//----------communication----------------
 #[derive(Deserialize)]
 pub struct CreateCommunicationInput {
     pub ticket_id: Uuid,
@@ -501,7 +538,7 @@ pub async fn delete_communication(
     Ok(StatusCode::NO_CONTENT)
 }
 
-
+//----------knowledge_base----------------
 #[derive(Deserialize)]
 pub struct CreateArticleInput {
     pub title: String,
@@ -621,7 +658,7 @@ pub async fn delete_article(
 }
 
 
-
+//----------tag----------------
 #[derive(Deserialize)]
 pub struct CreateTagInput {
     pub ticket_id: Uuid,
@@ -695,6 +732,8 @@ pub async fn delete_tag(
     Ok(StatusCode::NO_CONTENT)
 }
 
+
+//----------analytics----------------
 #[derive(Deserialize)]
 pub struct CreateAnalyticsInput {
     pub date: NaiveDate,
@@ -819,6 +858,8 @@ pub async fn delete_analytics(
     Ok(StatusCode::NO_CONTENT)
 }
 
+
+//----------audit_logs----------------
 #[derive(Deserialize)]
 pub struct CreateAuditLogInput {
     pub user_id: Uuid,
