@@ -1,52 +1,43 @@
 use axum::{
     Router,
-    routing::{post, put, delete, get},
-}
-use crate::handlers::{
-    customers,
-    users,
-    tickets,
-    communications,
-    knowledge_base,
-    tags,
-    analytics,
-    audit_logs,
+    routing::{post, put, delete, get}
 };
+use crate::API;
 use crate::app_state::AppState;
 
 
 pub fn routes() -> Router<AppState> {
     Router::new()
          // ---------- Users ----------
-        .route("/users", post(users::create_user).get(users::get_users))
-        .route("/users/:id", put(users::update_user).delete(users::delete_user))
+        .route("/users", post(create_user).get(get_users))
+        .route("/users/:id", put(update_user).delete(delete_user))
 
         // ---------- Customers ----------
-        .route("/customers", post(customers::create_customer).get(customers::get_customers))
-        .route("/customers/:id", put(customers::update_customer).delete(customers::delete_customer))
+        .route("/customers", post(create_customer).get(get_customers))
+        .route("/customers/:id", put(update_customer).delete(delete_customer))
 
         // ---------- Tickets ----------
-        .route("/tickets", post(tickets::create_ticket).get(tickets::get_tickets))
-        .route("/tickets/:id", put(tickets::update_ticket).delete(tickets::delete_ticket))
+        .route("/tickets", post(create_ticket).get(get_tickets))
+        .route("/tickets/:id", put(update_ticket).delete(delete_ticket))
 
         // ---------- Communications ----------
-        .route("/communications", post(communications::create_communication).get(communications::get_communications))
-        .route("/communications/:id", delete(communications::delete_communication))
+        .route("/communications", post(create_communication).get(get_communications))
+        .route("/communications/:id", delete(delete_communication))
 
         // ---------- Knowledge Base ----------
-        .route("/kb", post(knowledge_base::create_article).get(knowledge_base::get_articles))
-        .route("/kb/:id", put(knowledge_base::update_article).delete(knowledge_base::delete_article))
+        .route("/kb", post(create_article).get(get_articles))
+        .route("/kb/:id", put(update_article).delete(delete_article))
 
         // ---------- Tags ----------
-        .route("/tags", post(tags::create_tag).get(tags::get_tags))
-        .route("/tags/:id", delete(tags::delete_tag))
+        .route("/tags", post(create_tag).get(get_tags))
+        .route("/tags/:id", delete(delete_tag))
 
         // ---------- Analytics ----------
-        .route("/analytics", post(analytics::create_analytics).get(analytics::get_analytics))
-        .route("/analytics/:id", put(analytics::update_analytics).delete(analytics::delete_analytics))
+        .route("/analytics", post(create_analytics).get(get_analytics))
+        .route("/analytics/:id", put(update_analytics).delete(delete_analytics))
 
         // ---------- Audit Logs ----------
-        .route("/audit-logs", post(audit_logs::create_log).get(audit_logs::get_logs))
-        .route("/audit-logs/:id", delete(audit_logs::delete_log))
+        .route("/audit-logs", post(create_log).get(get_logs))
+        .route("/audit-logs/:id", delete(delete_log))
 
 }

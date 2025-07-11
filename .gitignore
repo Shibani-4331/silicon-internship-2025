@@ -8,3 +8,6 @@ f-generics/target/*
 g-traits/target/*
 h-error_handling/target/*
 i-test_and_file_operation/target/*
+
+.env
+todo.md

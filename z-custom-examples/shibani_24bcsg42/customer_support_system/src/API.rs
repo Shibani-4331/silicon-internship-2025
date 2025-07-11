@@ -1,3 +1,5 @@
+
+
 use axum::{
     routing::{post, get},
     extract::{State},
@@ -10,10 +12,8 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use sqlx::types::chrono::Utc;
 use sea_orm::prelude::Uuid;
-use crate::entity::users::ActiveModel;
 use crate::{app_state::AppState, entity::users};
 
-pub use users::Entity as UserEntity;
 
 #[derive(Deserialize)]
 struct CreateUserInput {
@@ -234,17 +234,6 @@ pub async fn delete_customer(
     Ok(StatusCode::NO_CONTENT)
 }
 
-use axum::{
-    extract::{State, Path},
-    http::StatusCode,
-    Json,
-};
-use sea_orm::{EntityTrait, ActiveModelTrait, Set};
-use sea_orm::prelude::Uuid;
-use sqlx::types::chrono::Utc;
-use serde::{Deserialize, Serialize};
-use crate::{AppState, entity::tickets};
-pub use tickets::Entity as TicketEntity;
 
 #[derive(Deserialize)]
 pub struct CreateTicketInput {
@@ -835,7 +824,7 @@ pub async fn create_log(
 ) -> Result<Json<AuditLogResponse>, (StatusCode, String)> {
     let db = &state.db;
 
-    let log = audit_logs::ActiveModel {
+    let log = ActiveModel {
         id: Set(Uuid::new_v4()),
         user_id: Set(input.user_id),
         action: Set(input.action.clone()),
