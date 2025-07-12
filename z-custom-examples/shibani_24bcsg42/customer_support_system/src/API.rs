@@ -673,39 +673,38 @@ pub async fn create_communication(
 
 // READ ALL
 pub async fn get_communications(
+     Path(ticket_id): Path<String>,
     State(state): State<AppState>,
+    auth: AuthUser,
 ) -> Result<Json<Vec<CommunicationResponse>>, (StatusCode, String)> {
+    let uuid = Uuid::parse_str(&ticket_id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid ticket ID".into()))?;
+
+
     let db = &state.db;
     let list = CommunicationEntity::find().all(db.as_ref()).await.map_err(|e| {
         eprintln!("Fetch error: {}", e);
         (StatusCode::INTERNAL_SERVER_ERROR, "Could not fetch communications".into())
     })?;
 
-    let response = list.into_iter().map(|m| CommunicationResponse {
-        id: m.id,
-        ticket_id: m.ticket_id,
-        sender_type: m.sender_type,
-        sender_id: m.sender_id,
-        message: m.message,
-        channel: m.channel,
-        is_internal: m.is_internal,
-    }).collect();
+    let visible = if auth.role == "customer" {
+        list.into_iter().filter(|c| !c.is_internal).collect()
+    } else {
+        list
+    };
 
+    let response = visible.into_iter().map(|c| CommunicationResponse {
+        id: c.id,
+        ticket_id: c.ticket_id,
+        sender_type: c.sender_type,
+        sender_id: c.sender_id,
+        message: c.message,
+        channel: c.channel,
+        is_internal: c.is_internal,
+    }).collect();   
     Ok(Json(response))
 }
 
-// DELETE
-pub async fn delete_communication(
-    State(state): State<AppState>,
-    Path(id): Path<Uuid>,
-) -> Result<StatusCode, (StatusCode, String)> {
-    let db = &state.db;
-    CommunicationEntity::delete_by_id(id).exec(db.as_ref()).await.map_err(|e| {
-        eprintln!("Delete error: {}", e);
-        (StatusCode::INTERNAL_SERVER_ERROR, "Could not delete communication".into())
-    })?;
-    Ok(StatusCode::NO_CONTENT)
-}
 
 //----------knowledge_base----------------
 #[derive(Deserialize)]
