@@ -8,7 +8,7 @@ use crate::api::{
     create_customer, get_customers, update_customer, delete_customer,
     create_ticket, delete_ticket_by_id, update_ticket_priority, update_ticket_status, assign_ticket, get_ticket_by_id, get_all_tickets,
     create_communication, get_communications, 
-    create_article, get_articles, update_article, delete_article,
+    create_article, get_all_articles, update_article, delete_article, search_articles,
     create_tag, get_tags, delete_tag,
     create_analytics, get_analytics, update_analytics, delete_analytics,
     create_log, get_logs, delete_log,
@@ -48,8 +48,9 @@ pub fn routes() -> Router<AppState> {
         .route("/communications/id", get(get_communications))
 
         // ---------- Knowledge Base ----------
-        .route("/kb", post(create_article).get(get_articles))
-        .route("/kb/id", put(update_article).delete(delete_article))
+        .route("/kb", post(create_article))
+        .route("/kb/id", put(update_article).delete(delete_article).get(get_all_articles))
+        .route("/kb/search", get(search_articles))
 
         // ---------- Tags ----------
         .route("/tags", post(create_tag).get(get_tags))

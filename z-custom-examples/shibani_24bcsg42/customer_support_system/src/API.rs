@@ -1,6 +1,6 @@
 use axum::{
     response::IntoResponse,
-    extract::{State, Path},
+    extract::{State, Path, Query},
     Router,
     http::StatusCode,
     Json,
@@ -715,7 +715,7 @@ pub struct CreateArticleInput {
     pub created_by: Uuid,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct ArticleResponse {
     pub id: Uuid,
     pub title: String,
@@ -727,10 +727,14 @@ pub struct ArticleResponse {
 // CREATE
 pub async fn create_article(
     State(state): State<AppState>,
+    auth: AuthUser,
     Json(input): Json<CreateArticleInput>,
-) -> Result<Json<ArticleResponse>, (StatusCode, String)> {
-    let db = &state.db;
 
+) -> Result<Json<ArticleResponse>, (StatusCode, String)> {
+    
+     if auth.role != "admin" && auth.role != "agent" {
+        return Err((StatusCode::FORBIDDEN, "Only agents/admins can create articles.".into()));
+    }
     let article = knowledge_base::ActiveModel {
         id: Set(Uuid::new_v4()),
         title: Set(input.title),
@@ -740,6 +744,7 @@ pub async fn create_article(
         created_at: Set(Utc::now().into()),
     };
 
+    let db = &state.db;
     let saved = article.insert(db.as_ref()).await.map_err(|e| {
         eprintln!("Insert error: {}", e);
         (StatusCode::INTERNAL_SERVER_ERROR, "Could not create article".into())
@@ -755,36 +760,45 @@ pub async fn create_article(
 }
 
 // GET ALL
-pub async fn get_articles(
+pub async fn get_all_articles(
     State(state): State<AppState>,
+    _auth: AuthUser,
 ) -> Result<Json<Vec<ArticleResponse>>, (StatusCode, String)> {
     let db = &state.db;
+    let articles = knowledge_base::Entity::find()
+        .all(db.as_ref())
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "DB error".into()))?;
 
-    let list = KBEntity::find().all(db.as_ref()).await.map_err(|e| {
-        eprintln!("Fetch error: {}", e);
-        (StatusCode::INTERNAL_SERVER_ERROR, "Could not fetch articles".into())
-    })?;
-
-    let response = list.into_iter().map(|article| ArticleResponse {
-        id: article.id,
-        title: article.title,
-        content: article.content,
-        category: article.category,
-        created_by: article.created_by,
-    }).collect();
+    let response = articles
+        .into_iter()
+        .map(|article| ArticleResponse {
+            id: article.id,
+            title: article.title,
+            content: article.content,
+            category: article.category,
+            created_by: article.created_by,
+        })
+        .collect();
 
     Ok(Json(response))
 }
 
 // UPDATE
+#[debug_handler]
 pub async fn update_article(
+     Path(id): Path<String>,
     State(state): State<AppState>,
-    Path(id): Path<Uuid>,
-    Json(input): Json<CreateArticleInput>,
+    auth: AuthUser,
+    Json(input): Json<ArticleResponse>,
 ) -> Result<Json<ArticleResponse>, (StatusCode, String)> {
-    let db = &state.db;
+     if auth.role != "admin" && auth.role != "agent" {
+        return Err((StatusCode::FORBIDDEN, "Access denied".into()));
+    }
 
-    let record = KBEntity::find_by_id(id).one(db.as_ref()).await.map_err(|e| {
+    let uuid = Uuid::parse_str(&id).map_err(|_| (StatusCode::BAD_REQUEST, "Invalid UUID".into()))?;
+    let db = &state.db;
+    let record = KBEntity::find_by_id(uuid).one(db.as_ref()).await.map_err(|e| {
         eprintln!("Find error: {}", e);
         (StatusCode::INTERNAL_SERVER_ERROR, "Could not find article".into())
     })?;
@@ -810,14 +824,54 @@ pub async fn update_article(
     }))
 }
 
+//SEARCH
+#[derive(Debug, Deserialize)]
+pub struct SearchQuery {
+    pub title: Option<String>,
+    pub category: Option<String>,
+}
+#[debug_handler]
+pub async fn search_articles(
+    Query(params): Query<SearchQuery>,
+    State(state): State<AppState>,
+) -> Result<Json<Vec<ArticleResponse>>, (StatusCode, String)> {
+    let mut query = KBEntity::find();
+
+    if let Some(title) = &params.title {
+        query = query.filter(knowledge_base::Column::Title.contains(title));
+    }
+
+    if let Some(category) = &params.category {
+        query = query.filter(knowledge_base::Column::Category.eq(category));
+    }
+
+    let db = &state.db;
+    let articles = query
+        .all(db.as_ref())
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Query failed".into()))?;
+
+    Ok(Json(articles.into_iter().map(|article| ArticleResponse {
+        id: article.id,
+        title: article.title,
+        content: article.content,
+        category: article.category,
+        created_by: article.created_by,
+    }).collect()))
+}
+
 // DELETE
 pub async fn delete_article(
+      Path(id): Path<String>,
     State(state): State<AppState>,
-    Path(id): Path<Uuid>,
+    auth: AuthUser,
 ) -> Result<StatusCode, (StatusCode, String)> {
+    if auth.role != "admin" && auth.role != "agent" {
+        return Err((StatusCode::FORBIDDEN, "Only agents or admins can delete".into()));
+    }
+    let uuid = Uuid::parse_str(&id).map_err(|_| (StatusCode::BAD_REQUEST, "Invalid UUID".into()))?;
     let db = &state.db;
-
-    KBEntity::delete_by_id(id).exec(db.as_ref()).await.map_err(|e| {
+    KBEntity::delete_by_id(uuid).exec(db.as_ref()).await.map_err(|e| {
         eprintln!("Deletion error: {}", e);
         (StatusCode::INTERNAL_SERVER_ERROR, "Could not delete article".into())
     })?;
