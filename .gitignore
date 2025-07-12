@@ -1,4 +1,4 @@
-*/target
+
 a-variables/target/*
 b-control-flow/target/*
 c-ownership_borrowing/target/*
@@ -11,4 +11,3 @@ i-test_and_file_operation/target/*
 
 .env
 todo.md
-z-custom-examples/shibani_24bcsg42/customer_support_system/target
