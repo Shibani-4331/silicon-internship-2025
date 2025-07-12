@@ -6,15 +6,14 @@ use axum::{
 use crate::api::{
     create_user, get_users, update_user, delete_user,
     create_customer, get_customers, update_customer, delete_customer,
-    create_ticket, get_tickets, update_ticket, delete_ticket,
+    create_ticket, delete_ticket_by_id, update_ticket_priority, update_ticket_status, assign_ticket, get_ticket_by_id, get_all_tickets,
     create_communication, get_communications, delete_communication,
     create_article, get_articles, update_article, delete_article,
     create_tag, get_tags, delete_tag,
     create_analytics, get_analytics, update_analytics, delete_analytics,
     create_log, get_logs, delete_log,
     login_user,
-    root_handler,
-    assign_ticket
+    root_handler
 };
 use crate::app_state::AppState;
 use crate::auth::{AuthUser, require_role};
@@ -36,8 +35,12 @@ pub fn routes() -> Router<AppState> {
         .route("/customers/id", put(update_customer).delete(delete_customer))
 
         // ---------- Tickets ----------
-        .route("/tickets", post(create_ticket).get(get_tickets))
-        .route("/tickets/id", put(update_ticket).delete(delete_ticket))
+        .route("/tickets", post(create_ticket))
+        .route("/tickets", get(get_all_tickets))
+        .route("/tickets/id", get(get_ticket_by_id))
+        .route("/tickets/id", delete(delete_ticket_by_id))
+        .route("/tickets/id/status", patch(update_ticket_status))
+        .route("/tickets/id/priority", patch(update_ticket_priority))
         .route("/tickets/id/assign", patch(assign_ticket))
 
         // ---------- Communications ----------

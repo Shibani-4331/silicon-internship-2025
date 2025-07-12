@@ -1,11 +1,13 @@
 use axum::{
+    response::IntoResponse,
     extract::{State, Path},
     Router,
     http::StatusCode,
     Json,
 };
+use axum::debug_handler;
 use chrono::{NaiveDate, Duration}; 
-use sea_orm::{EntityTrait, Set, ActiveModelTrait, DatabaseConnection, QueryFilter, ColumnTrait};
+use sea_orm::{EntityTrait, Set, ActiveModelTrait, DatabaseConnection, QueryFilter, ColumnTrait, ModelTrait};
 use serde::{Deserialize, Serialize};
 use sqlx::types::chrono::Utc;
 use sea_orm::prelude::Uuid;
@@ -407,79 +409,200 @@ pub async fn assign_ticket(
 }
 
 // READ ALL
-pub async fn get_tickets(
-    State(state): State<AppState>,
-) -> Result<Json<Vec<TicketResponse>>, (StatusCode, String)> {
-    let db = &state.db;
-    let tickets = TicketEntity::find().all(db.as_ref()).await.map_err(|e| {
-        eprintln!("Failed to fetch tickets: {}", e);
-        (StatusCode::INTERNAL_SERVER_ERROR, "Fetch error".into())
-    })?;
 
-    let response = tickets.into_iter().map(|t| TicketResponse {
-        id: t.id,
-        title: t.title,
-        description: t.description,
-        status: t.status,
-        priority: t.priority,
-        channel: t.channel,
-        customer_id: t.customer_id,
-        assigned_agent_id: t.assigned_agent_id,
-    }).collect();
+fn can_read_or_edit_ticket(
+    auth: &AuthUser,
+    ticket: &tickets::Model,
+) -> Result<(), (StatusCode, String)> {
+    if auth.role == "admin" {
+        return Ok(());
+    }
 
-    Ok(Json(response))
+    if auth.role == "agent"
+        && ticket.assigned_agent_id
+            .as_ref()
+            .map(|id| id.to_string()) == Some(auth.u_id.to_string())
+    {
+        return Ok(());
+    }
+
+   if auth.role == "customer"
+    && Some(auth.u_id.to_string()) == Some(ticket.customer_id.to_string())
+    {
+         return Ok(());
+    }
+
+
+    Err((StatusCode::FORBIDDEN, "Access denied".into()))
 }
+
+
+pub async fn get_ticket_by_id(
+    Path(ticket_id): Path<String>,
+    State(state): State<AppState>,
+    auth: AuthUser,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let id = Uuid::parse_str(&ticket_id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid UUID".into()))?;
+
+    let db = &state.db;
+    let ticket = tickets::Entity::find_by_id(id)
+        .one(db.as_ref())
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Database error".into()))?
+        .ok_or((StatusCode::NOT_FOUND, "Ticket not found".into()))?;
+
+
+    can_read_or_edit_ticket(&auth, &ticket)?;
+
+    Ok(Json(ticket))
+}
+// GET /tickets — Admin only
+#[debug_handler]
+pub async fn get_all_tickets (
+    State(state): State<AppState>,
+    auth: AuthUser
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    require_role(&auth, "admin")?;
+
+    let db = &state.db;
+    let all_tickets = tickets::Entity::find()
+        .all(db.as_ref())
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Database error".into()))?;
+
+    Ok(Json(all_tickets))
+}
+
 
 // UPDATE
-pub async fn update_ticket(
-    State(state): State<AppState>,
-    Path(id): Path<Uuid>,
-    Json(input): Json<CreateTicketInput>,
-) -> Result<Json<TicketResponse>, (StatusCode, String)> {
-    let db = &state.db;
-    let record = TicketEntity::find_by_id(id).one(db.as_ref()).await.map_err(|e| {
-        eprintln!("Fetch failed: {}", e);
-        (StatusCode::INTERNAL_SERVER_ERROR, "Ticket not found".into())
-    })?;
-
-    let mut model = record.ok_or((StatusCode::NOT_FOUND, "No ticket with that ID".into()))?.into_active_model();
-
-    model.title = Set(input.title);
-    model.description = Set(input.description);
-    model.status = Set(input.status);
-    model.priority = Set(input.priority);
-    model.channel = Set(input.channel);
-    model.customer_id = Set(input.customer_id);
-    model.assigned_agent_id = Set(input.assigned_agent_id);
-    model.updated_at = Set(Utc::now().into());
-
-    let updated = model.update(db.as_ref()).await.map_err(|e| {
-        eprintln!("Update failed: {}", e);
-        (StatusCode::INTERNAL_SERVER_ERROR, "Could not update".into())
-    })?;
-
-    Ok(Json(TicketResponse {
-        id: updated.id,
-        title: updated.title,
-        description: updated.description,
-        status: updated.status,
-        priority: updated.priority,
-        channel: updated.channel,
-        customer_id: updated.customer_id,
-        assigned_agent_id: updated.assigned_agent_id,
-    }))
+#[derive(Deserialize)]
+pub struct StatusInput {
+    pub status: String,
 }
 
-// DELETE
-pub async fn delete_ticket(
+#[derive(Deserialize)]
+pub struct PriorityInput {
+    pub priority: String,
+}
+
+
+fn can_edit_ticket(auth: &AuthUser, ticket: &tickets::Model) -> Result<(), (StatusCode, String)> {
+    if auth.role == "admin" {
+        return Ok(());
+    }
+    if auth.role == "agent" && Some(auth.u_id.clone()) == ticket.assigned_agent_id.map(|id| id.to_string()) {
+        return Ok(());
+    }
+    Err((StatusCode::FORBIDDEN, "Not allowed to modify this ticket".into()))
+}
+
+// UPDATE status
+pub async fn update_ticket_status(
+    Path(ticket_id): Path<String>,
     State(state): State<AppState>,
-    Path(id): Path<Uuid>,
-) -> Result<StatusCode, (StatusCode, String)> {
+    auth: AuthUser,
+    Json(input): Json<StatusInput>,
+) -> Result<Json<String>, (StatusCode, String)> {
+    let id = uuid::Uuid::parse_str(&ticket_id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid UUID".into()))?;
+
     let db = &state.db;
-    TicketEntity::delete_by_id(id).exec(db.as_ref()).await.map_err(|e| {
-        eprintln!("Delete failed: {}", e);
-        (StatusCode::INTERNAL_SERVER_ERROR, "Could not delete ticket".into())
-    })?;
+    let ticket = tickets::Entity::find_by_id(id)
+        .one(db.as_ref())
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "DB error".into()))?
+        .ok_or((StatusCode::NOT_FOUND, "Ticket not found".into()))?;
+
+    can_edit_ticket(&auth, &ticket)?;
+
+    let mut active = ticket.into_active_model();
+    active.status = Set(input.status);
+
+    active
+        .update(db.as_ref())
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to update status".into()))?;
+
+    Ok(Json("Status updated successfully".into()))
+}
+
+// UPDATE priority
+pub async fn update_ticket_priority(
+    Path(ticket_id): Path<String>,
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Json(input): Json<PriorityInput>,
+) -> Result<Json<String>, (StatusCode, String)> {
+    let id = uuid::Uuid::parse_str(&ticket_id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid UUID".into()))?;
+
+    let db = &state.db;
+    let ticket = tickets::Entity::find_by_id(id)
+        .one(db.as_ref())
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "DB error".into()))?
+        .ok_or((StatusCode::NOT_FOUND, "Ticket not found".into()))?;
+
+    can_edit_ticket(&auth, &ticket)?;
+
+    let mut active = ticket.into_active_model();
+    active.priority = Set(input.priority);
+
+    active
+        .update(db.as_ref())
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to update priority".into()))?;
+
+    Ok(Json("Priority updated successfully".into()))
+}
+
+
+// DELETE
+fn can_delete_ticket(
+    auth: &AuthUser,
+    ticket: &tickets::Model,
+) -> Result<(), (StatusCode, String)> {
+    if auth.role == "admin" {
+        return Ok(());
+    }
+
+    if auth.role == "agent"
+        && Some(auth.u_id.clone()) == ticket.assigned_agent_id.map(|id| id.to_string())
+    {
+        return Ok(());
+    }
+
+    if auth.role == "customer"
+        && Some(auth.u_id.to_string()) == Some(ticket.customer_id.to_string())
+
+    {
+        return Ok(());
+    }
+
+    Err((StatusCode::FORBIDDEN, "Access denied".into()))
+}
+pub async fn delete_ticket_by_id(
+    Path(ticket_id): Path<String>,
+    State(state): State<AppState>,
+    auth: AuthUser,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let uuid = Uuid::parse_str(&ticket_id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid UUID".to_string()))?;
+
+    let db = &state.db;
+    let ticket = tickets::Entity::find_by_id(uuid)
+        .one(db.as_ref())
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "DB error".into()))?
+        .ok_or((StatusCode::NOT_FOUND, "Ticket not found".into()))?;
+
+    can_delete_ticket(&auth, &ticket)?; 
+
+    ticket
+        .delete(db.as_ref())
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to delete".into()))?;
 
     Ok(StatusCode::NO_CONTENT)
 }
