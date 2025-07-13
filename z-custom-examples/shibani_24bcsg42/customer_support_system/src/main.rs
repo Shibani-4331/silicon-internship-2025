@@ -9,6 +9,7 @@ use std::sync::Arc;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 pub use crate::doc::ApiDoc;
+use error_handle::AppError;
 
 mod routes; 
 mod app_state;
@@ -17,6 +18,7 @@ mod api;
 use entity::prelude::*;
 mod auth;
 mod doc;
+mod error_handle;
 
 
 

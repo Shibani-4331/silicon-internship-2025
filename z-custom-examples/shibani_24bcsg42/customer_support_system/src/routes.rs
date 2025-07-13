@@ -4,6 +4,7 @@ use axum::{
     extract::{State, Json},
 };
 use crate::api::{
+    //get_my_tickets, get_ticket_details, customer_reply_ticket,
     create_user, get_users, update_user, delete_user,
     create_customer, get_customers, update_customer, delete_customer,
     create_ticket, delete_ticket_by_id, update_ticket_priority, update_ticket_status, assign_ticket, get_ticket_by_id, get_all_tickets, get_filtered_tickets,
@@ -23,7 +24,7 @@ use crate::auth::{AuthUser, require_role};
 pub fn routes() -> Router<AppState> {
     Router::new()
 
-        // .route("/", get(root_handler))
+        
         // ---------- Authentication ----------
         .route("/login", post(login_user))
         // ---------- Users ----------
@@ -64,5 +65,10 @@ pub fn routes() -> Router<AppState> {
         // // ---------- Audit Logs ----------
         // .route("/audit-logs", post(create_log).get(get_logs))
         // .route("/audit-logs/id", delete(delete_log))
+
+        // // ---------- Customer Support ----------
+        // .route("/api/customer/tickets", get(get_my_tickets))
+        // .route("/api/customer/tickets/:ticket_id", get(get_ticket_details))
+        // .route("/api/customer/tickets/:ticket_id/reply", post(customer_reply_ticket))
 
 }

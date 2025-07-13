@@ -19,6 +19,7 @@ async-trait = "0.1"
 utoipa = { version = "5.4.0", features = ["axum_extras", "uuid", "chrono"] }
 utoipa-axum = { version = "0.2.0" }
 utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
+anyhow = "1.0.98"
 
 
 [dev-dependencies]

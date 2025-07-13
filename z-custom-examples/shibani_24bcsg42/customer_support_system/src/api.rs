@@ -33,11 +33,8 @@ use crate::entity::audit_logs::Entity as AuditLogEntity;
 use crate::auth::{generate_jwt, AuthUser, require_role};
 use utoipa::ToSchema;
 use crate::auth;
+use crate::error_handle::AppError;
 
-
-// pub async fn root_handler() -> &'static str {
-//     "Welcome to the User API"
-// }
 
 //-----------login--------------
 #[derive(Deserialize, ToSchema)]
@@ -64,19 +61,19 @@ pub struct LoginResponse {
 pub async fn login_user(
     State(state): State<AppState>,
     Json(input): Json<LoginInput>,
-) -> Result<Json<LoginResponse>, (StatusCode, String)> {
+) -> Result<Json<LoginResponse>, AppError> {
     use crate::entity::users;
 
     let user = users::Entity::find()
         .filter(users::Column::Email.eq(input.email.clone()))
         .one(state.db.as_ref())
         .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "DB error".into()))?
-        .ok_or((StatusCode::UNAUTHORIZED, "Invalid email".into()))?;
+        .map_err(AppError::Db)?
+        .ok_or(AppError::Unauthorized)?;
 
 
     if input.password != user.password_hash {
-        return Err((StatusCode::UNAUTHORIZED, "Invalid password".into()));
+        return Err(AppError::Unauthorized);
     }
 
     let token = crate::auth::generate_jwt(&user.id.to_string(), &user.role);
@@ -117,7 +114,7 @@ pub struct UserResponse {
  pub async fn create_user(
     State(state): State<AppState>,
     Json(input): Json<CreateUserInput>,
-) -> Result<Json<UserResponse>, (StatusCode, String)> {
+) -> Result<Json<UserResponse>, AppError> {
     let user = users::ActiveModel {
         id: Set(Uuid::new_v4()),
         email: Set(input.email),
@@ -132,7 +129,7 @@ pub struct UserResponse {
         .await
         .map_err(|e| {
             eprintln!("Failed to create user: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, "Failed to create user".into())
+            AppError::Internal("Failed to create user".into())
     })?;
 
     Ok(Json(UserResponse {
@@ -154,7 +151,7 @@ pub struct UserResponse {
 pub async fn get_users(
     State(state): State<AppState>,
     _auth_user: auth::AuthUser,
-) -> Result<Json<Vec<UserResponse>>, (StatusCode, String)> {
+) -> Result<Json<Vec<UserResponse>>, AppError> {
     require_role(&_auth_user, "admin")?;
 
     let db = &state.db;
@@ -163,7 +160,7 @@ pub async fn get_users(
         .await
         .map_err(|e| {
             eprintln!("Failed to retrieve users: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, "Failed to retrieve users".into())
+            AppError::Internal("Failed to retrieve users".into())
         })?;
 
      let response = users
@@ -485,21 +482,21 @@ pub async fn assign_ticket(
     State(state): State<AppState>,
     auth: AuthUser,
     Json(input): Json<AssignInput>,
-) -> Result<Json<String>, (StatusCode, String)> {
+) -> Result<Json<String>, AppError> {
     require_role(&auth, "admin")?;
 
     let uuid = uuid::Uuid::parse_str(&ticket_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid UUID".to_string()))?;
+        .map_err(|_| AppError::BadRequest("Invalid UUID".to_string()))?;
 
     let db = &state.db;
     let mut ticket = tickets::Entity::find_by_id(uuid)
         .one(db.as_ref())
         .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "DB error".into()))?
-        .ok_or((StatusCode::NOT_FOUND, "Ticket not found".into()))?;
+        .map_err(AppError::Db)?
+        .ok_or(AppError::NotFound("Ticket not found".into()))?;
 
     ticket.assigned_agent_id = Some(uuid::Uuid::parse_str(&input.agent_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid agent UUID".into()))?);
+        .map_err(|_| AppError::BadRequest("Invalid agent UUID".into()))?);
 
     let mut active: tickets::ActiveModel = ticket.clone().into();
     active.assigned_agent_id = Set(ticket.assigned_agent_id);
@@ -508,7 +505,7 @@ pub async fn assign_ticket(
     active
         .update(db.as_ref())
         .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Update failed".into()))?;
+        .map_err(|_| AppError::Internal("Update failed".into()))?;
 
     Ok(Json("Agent assigned successfully".into()))
 }
@@ -518,7 +515,7 @@ pub async fn assign_ticket(
 fn can_read_or_edit_ticket(
     auth: &AuthUser,
     ticket: &tickets::Model,
-) -> Result<(), (StatusCode, String)> {
+) -> Result<(), AppError> {
     if auth.role == "admin" {
         return Ok(());
     }
@@ -538,7 +535,7 @@ fn can_read_or_edit_ticket(
     }
 
 
-    Err((StatusCode::FORBIDDEN, "Access denied".into()))
+    Err(AppError::Forbidden)
 }
 // READ by ID
 #[utoipa::path(
@@ -554,16 +551,16 @@ pub async fn get_ticket_by_id(
     Path(ticket_id): Path<String>,
     State(state): State<AppState>,
     auth: AuthUser,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+) -> Result<impl IntoResponse, AppError> {
     let id = Uuid::parse_str(&ticket_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid UUID".into()))?;
+        .map_err(|_| AppError::BadRequest("Invalid UUID".into()))?;
 
     let db = &state.db;
     let ticket = tickets::Entity::find_by_id(id)
         .one(db.as_ref())
         .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Database error".into()))?
-        .ok_or((StatusCode::NOT_FOUND, "Ticket not found".into()))?;
+        .map_err(|_| AppError::Internal("Database error".into()))?
+        .ok_or(AppError::NotFound("Ticket not found".into()))?;
 
 
     can_read_or_edit_ticket(&auth, &ticket)?;
@@ -583,14 +580,14 @@ pub async fn get_ticket_by_id(
 pub async fn get_all_tickets (
     State(state): State<AppState>,
     auth: AuthUser
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+) -> Result<impl IntoResponse, AppError> {
     require_role(&auth, "admin")?;
 
     let db = &state.db;
     let all_tickets = tickets::Entity::find()
         .all(db.as_ref())
         .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Database error".into()))?;
+        .map_err(|_| AppError::Internal("Database error".into()))?;
 
     Ok(Json(all_tickets))
 }
@@ -608,14 +605,14 @@ pub struct PriorityInput {
 }
 
 
-fn can_edit_ticket(auth: &AuthUser, ticket: &tickets::Model) -> Result<(), (StatusCode, String)> {
+fn can_edit_ticket(auth: &AuthUser, ticket: &tickets::Model) -> Result<(), AppError> {
     if auth.role == "admin" {
         return Ok(());
     }
     if auth.role == "agent" && Some(auth.u_id.clone()) == ticket.assigned_agent_id.map(|id| id.to_string()) {
         return Ok(());
     }
-    Err((StatusCode::FORBIDDEN, "Not allowed to modify this ticket".into()))
+    Err(AppError::Forbidden)
 }
 
 // UPDATE status
@@ -633,16 +630,16 @@ pub async fn update_ticket_status(
     State(state): State<AppState>,
     auth: AuthUser,
     Json(input): Json<StatusInput>,
-) -> Result<Json<String>, (StatusCode, String)> {
+) -> Result<Json<String>, AppError> {
     let id = uuid::Uuid::parse_str(&ticket_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid UUID".into()))?;
+        .map_err(|_| AppError::BadRequest("Invalid UUID".into()))?;
 
     let db = &state.db;
     let ticket = tickets::Entity::find_by_id(id)
         .one(db.as_ref())
         .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "DB error".into()))?
-        .ok_or((StatusCode::NOT_FOUND, "Ticket not found".into()))?;
+        .map_err(AppError::Db)?
+        .ok_or(AppError::NotFound("Ticket not found".into()))?;
 
     can_edit_ticket(&auth, &ticket)?;
 
@@ -652,7 +649,7 @@ pub async fn update_ticket_status(
     active
         .update(db.as_ref())
         .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to update status".into()))?;
+        .map_err(|_| AppError::Internal("Failed to update status".into()))?;
 
     Ok(Json("Status updated successfully".into()))
 }
@@ -672,16 +669,16 @@ pub async fn update_ticket_priority(
     State(state): State<AppState>,
     auth: AuthUser,
     Json(input): Json<PriorityInput>,
-) -> Result<Json<String>, (StatusCode, String)> {
+) -> Result<Json<String>, AppError> {
     let id = uuid::Uuid::parse_str(&ticket_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid UUID".into()))?;
+        .map_err(|_| AppError::BadRequest("Invalid UUID".into()))?;
 
     let db = &state.db;
     let ticket = tickets::Entity::find_by_id(id)
         .one(db.as_ref())
         .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "DB error".into()))?
-        .ok_or((StatusCode::NOT_FOUND, "Ticket not found".into()))?;
+        .map_err(AppError::Db)?
+        .ok_or(AppError::NotFound("Ticket not found".into()))?;
 
     can_edit_ticket(&auth, &ticket)?;
 
@@ -691,7 +688,7 @@ pub async fn update_ticket_priority(
     active
         .update(db.as_ref())
         .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to update priority".into()))?;
+        .map_err(|_| AppError::Internal("Failed to update priority".into()))?;
 
     Ok(Json("Priority updated successfully".into()))
 }
@@ -721,7 +718,7 @@ pub async fn get_filtered_tickets(
     State(state): State<AppState>,
     Query(params): Query<TicketQuery>,
     auth: AuthUser,
-) -> Result<Json<Vec<TicketResponse>>, (StatusCode, String)> {
+) -> Result<Json<Vec<TicketResponse>>, AppError> {
     let mut condition = Condition::all();
 
     if let Some(status) = params.status {
@@ -748,7 +745,7 @@ pub async fn get_filtered_tickets(
         .filter(condition)
         .all(db.as_ref())
         .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "DB error".into()))?;
+        .map_err(AppError::Db)?;
 
     let response = result.into_iter().map(|ticket| TicketResponse::from(ticket)).collect::<Vec<_>>();
 
@@ -759,7 +756,7 @@ pub async fn get_filtered_tickets(
 fn can_delete_ticket(
     auth: &AuthUser,
     ticket: &tickets::Model,
-) -> Result<(), (StatusCode, String)> {
+) -> Result<(), AppError> {
     if auth.role == "admin" {
         return Ok(());
     }
@@ -777,7 +774,7 @@ fn can_delete_ticket(
         return Ok(());
     }
 
-    Err((StatusCode::FORBIDDEN, "Access denied".into()))
+    Err(AppError::Forbidden)
 }
 #[utoipa::path(
     delete,
@@ -791,23 +788,23 @@ pub async fn delete_ticket_by_id(
     Path(ticket_id): Path<String>,
     State(state): State<AppState>,
     auth: AuthUser,
-) -> Result<StatusCode, (StatusCode, String)> {
+) -> Result<StatusCode, AppError> {
     let uuid = Uuid::parse_str(&ticket_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid UUID".to_string()))?;
+        .map_err(|_| AppError::BadRequest("Invalid UUID".to_string()))?;
 
     let db = &state.db;
     let ticket = tickets::Entity::find_by_id(uuid)
         .one(db.as_ref())
         .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "DB error".into()))?
-        .ok_or((StatusCode::NOT_FOUND, "Ticket not found".into()))?;
+        .map_err(AppError::Db)?
+        .ok_or(AppError::NotFound("Ticket not found".into()))?;
 
     can_delete_ticket(&auth, &ticket)?; 
 
     ticket
         .delete(db.as_ref())
         .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to delete".into()))?;
+        .map_err(|_| AppError::Internal("Failed to delete".into()))?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -1002,12 +999,12 @@ pub async fn create_article(
 pub async fn get_all_articles(
     State(state): State<AppState>,
     _auth: AuthUser,
-) -> Result<Json<Vec<ArticleResponse>>, (StatusCode, String)> {
+) -> Result<Json<Vec<ArticleResponse>>, AppError> {
     let db = &state.db;
     let articles = knowledge_base::Entity::find()
         .all(db.as_ref())
         .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "DB error".into()))?;
+        .map_err(AppError::Db)?;
 
     let response = articles
         .into_iter()
@@ -1369,16 +1366,16 @@ pub async fn get_analytics_by_id(
     Path(id): Path<String>,
     State(state): State<AppState>,
     auth: AuthUser,
-) -> Result<Json<AnalyticsResponse>, (StatusCode, String)> {
+) -> Result<Json<AnalyticsResponse>, AppError> {
     require_role(&auth, "admin")?;
 
-    let uuid = Uuid::parse_str(&id).map_err(|_| (StatusCode::BAD_REQUEST, "Invalid ID".into()))?;
+    let uuid = Uuid::parse_str(&id).map_err(|_| AppError::BadRequest("Invalid ID".into()))?;
     let db = &state.db;
     let found = analytics::Entity::find_by_id(uuid)
         .one(db.as_ref())
         .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "DB error".into()))?
-        .ok_or((StatusCode::NOT_FOUND, "Not found".into()))?;
+        .map_err(AppError::Db)?
+        .ok_or(AppError::NotFound("Not found".into()))?;
 
     Ok(Json(AnalyticsResponse {
         id: found.id,
@@ -1468,17 +1465,114 @@ pub async fn get_analytics_by_id(
 //     Ok(Json(response))
 // }
 
-// // DELETE
-// pub async fn delete_log(
+// //----------customer tickets----------------
+// #[utoipa::path(
+//     get,
+//     path = "/api/customer/tickets",
+//     tag = "Customer",
+//     responses(
+//         (status = 200, description = "List of customer's tickets", body = [CustomerTicketView])
+//     ),
+//     security(("bearer_auth" = []))
+// )]
+// pub async fn get_my_tickets(
 //     State(state): State<AppState>,
-//     Path(id): Path<Uuid>,
-// ) -> Result<StatusCode, (StatusCode, String)> {
+//     user: AuthUser,
+// ) -> Result<Json<Vec<tickets::Model>>, String> {
 //     let db = &state.db;
+//     let tickets = tickets::Entity::find()
+//         .filter(tickets::Column::CustomerId.eq(user.id))
+//         .all(db.as_ref())
+//         .await
+//         .map_err(|e| e.to_string())?;
 
-//     AuditLogEntity::delete_by_id(id).exec(db.as_ref()).await.map_err(|e| {
-//         eprintln!("Deletion error: {}", e);
-//         (StatusCode::INTERNAL_SERVER_ERROR, "Could not delete log".into())
-//     })?;
+//     Ok(Json(tickets))
+// }
 
-//     Ok(StatusCode::NO_CONTENT)
+// #[utoipa::path(
+//     get,
+//     path = "/api/customer/tickets/{ticket_id}",
+//     tag = "Customer",
+//     params(
+//         ("ticket_id" = i32, Path, description = "Ticket ID")
+//     ),
+//     responses(
+//         (status = 200, description = "Ticket with conversation", body = CustomerTicketView)
+//     ),
+//     security(("bearer_auth" = []))
+// )]
+// pub async fn get_ticket_details(
+//     State(state): State<AppState>,
+//     Path(ticket_id): Path<i32>,
+//     user: AuthUser,
+// ) -> Result<Json<CustomerTicketView>, String> {
+//     let db = &state.db;
+//     let ticket = tickets::Entity::find_by_id(ticket_id)
+//         .filter(tickets::Column::CustomerId.eq(user.id))
+//         .one(db.as_ref())
+//         .await
+//         .map_err(|e| e.to_string())?
+//         .ok_or("Ticket not found")?;
+
+//     let messages = ticket_comments::Entity::find()
+//         .filter(ticket_comments::Column::TicketId.eq(ticket.id))
+//         .filter(ticket_comments::Column::IsInternal.eq(false))
+//         .all(&state.db)
+//         .await
+//         .map_err(|e| e.to_string())?
+//         .into_iter()
+//         .map(|c| c.message)
+//         .collect();
+
+//     Ok(Json(CustomerTicketView {
+//         id: ticket.id,
+//         subject: ticket.subject,
+//         status: ticket.status,
+//         priority: ticket.priority,
+//         messages,
+//     }))
+// }
+
+// #[utoipa::path(
+//     post,
+//     path = "/api/customer/tickets/{ticket_id}/reply",
+//     tag = "Customer",
+//     request_body = CustomerReplyInput,
+//     params(
+//         ("ticket_id" = i32, Path, description = "Ticket ID")
+//     ),
+//     responses(
+//         (status = 200, description = "Customer reply added", body = String)
+//     ),
+//     security(("bearer_auth" = []))
+// )]
+// pub async fn customer_reply_ticket(
+//     State(state): State<AppState>,
+//     Path(ticket_id): Path<i32>,
+//     user: AuthUser,
+//     Json(input): Json<CustomerReplyInput>,
+// ) -> Result<Json<String>, String> {
+
+//     let db = &state.db;
+//     let ticket = tickets::Entity::find_by_id(ticket_id)
+//         .filter(tickets::Column::CustomerId.eq(user.id))
+//         .one(db.as_ref())
+//         .await
+//         .map_err(|e| e.to_string())?
+//         .ok_or("Ticket not found")?;
+
+//     let new_comment = ticket_comments::ActiveModel {
+//         ticket_id: sea_orm::ActiveValue::Set(ticket.id),
+//         user_id: sea_orm::ActiveValue::Set(Some(user.id)),
+//         message: sea_orm::ActiveValue::Set(input.message),
+//         is_internal: sea_orm::ActiveValue::Set(false),
+//         ..Default::default()
+//     };
+
+//     ticket_comments::Entity::insert(new_comment)
+//         .exec(&state.db)
+//         .await
+//         .map_err(|e| e.to_string())?;
+
+//     Ok(Json("Reply added".to_string()))
 // }

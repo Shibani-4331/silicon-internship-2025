@@ -30,7 +30,10 @@ use crate::api;
         crate::api::delete_tag,
         crate::api::create_analytics,
         crate::api::get_analytics,
-        crate::api::get_analytics_by_id
+        crate::api::get_analytics_by_id,
+        // crate::api::customer_reply_ticket,
+        // crate::api::get_my_tickets,
+        // crate::api::get_ticket_details,
 
     ),
     components(
@@ -56,6 +59,8 @@ use crate::api;
            api::TagResponse,
            api::CreateAnalyticsInput,    
            api::AnalyticsResponse,
+        //    api::CustomerTicketView,
+        //    api::CustomerReplyInput,
         )
     ),
     tags(
@@ -66,6 +71,7 @@ use crate::api;
         (name = "Knowledge", description = "Knowledge base endpoints"),
         (name = "Tag", description = "Tag endpoints"),
         (name = "Analytics", description = "Analytics endpoints"),
+       // (name = "Customer Support", description = "get my tickets and ticket details endpoints"),
     )
 )]
 pub struct ApiDoc;

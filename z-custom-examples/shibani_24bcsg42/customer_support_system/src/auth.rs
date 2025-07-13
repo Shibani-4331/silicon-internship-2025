@@ -8,6 +8,7 @@ use once_cell::sync::Lazy;
 use std::env;
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
+use crate::error_handle::{AppError, ErrorResponse};
 
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -91,9 +92,9 @@ pub fn generate_jwt(user_id: &str, role: &str) -> String {
 
 
 //verify
-pub fn require_role(user: &AuthUser, required_role: &str) -> Result<(), (StatusCode, String)> {
+pub fn require_role(user: &AuthUser, required_role: &str) -> Result<(), AppError> {
     if user.role != required_role {
-        Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()))
+        Err(AppError::Forbidden)
     } else {
         Ok(())
     }
