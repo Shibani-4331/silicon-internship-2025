@@ -7,7 +7,7 @@ use axum::{
 };
 use axum::debug_handler;
 use chrono::{NaiveDate, Duration}; 
-use sea_orm::{EntityTrait, Set, ActiveModelTrait, DatabaseConnection, QueryFilter, ColumnTrait, ModelTrait, Condition};
+use sea_orm::{EntityTrait, Set, ActiveModelTrait, DatabaseConnection, QueryFilter, ColumnTrait, ModelTrait, Condition, QuerySelect};
 use serde::{Deserialize, Serialize};
 use sqlx::types::chrono::Utc;
 use sea_orm::prelude::Uuid;
@@ -31,7 +31,7 @@ use crate::entity::tags::Entity as TagEntity;
 use crate::entity::analytics::Entity as AnalyticsEntity;
 use crate::entity::audit_logs::Entity as AuditLogEntity;
 use crate::auth::{generate_jwt, AuthUser, require_role};
-use utoipa::ToSchema;
+use utoipa::{ToSchema, IntoParams}; 
 use crate::auth;
 use crate::error_handle::AppError;
 
@@ -79,6 +79,12 @@ pub async fn login_user(
     let token = crate::auth::generate_jwt(&user.id.to_string(), &user.role);
 
     Ok(Json(LoginResponse { token }))
+}
+
+#[derive(Debug, Deserialize, IntoParams, ToSchema)]
+pub struct Pagination {
+    pub limit: Option<u64>,
+    pub offset: Option<u64>,
 }
 
 //----------user----------------
@@ -303,6 +309,7 @@ pub async fn create_customer(
 #[utoipa::path(
     get,
     path = "/customers",
+    params(Pagination),
     responses(
         (status = 200, description = "List of customers", body = [CustomerResponse])
     ),
@@ -310,12 +317,18 @@ pub async fn create_customer(
 )]
 pub async fn get_customers(
     State(state): State<AppState>,
-    _auth: AuthUser, // Assuming AuthUser is a middleware for authentication
-) -> Result<Json<Vec<CustomerResponse>>, (StatusCode, String)> {
+    _auth: AuthUser,
+    Query(pagination): Query<Pagination>,
+) -> Result<Json<Vec<CustomerResponse>>, AppError> {
     let db = &state.db;
-    let list = CustomerEntity::find().all(db.as_ref()).await.map_err(|e| {
-        eprintln!("Error fetching customers: {}", e);
-        (StatusCode::INTERNAL_SERVER_ERROR, "Could not fetch customers".into())
+    let list = CustomerEntity::find()
+        .limit(pagination.limit.unwrap_or(10))
+        .offset(pagination.offset.unwrap_or(0))
+        .all(db.as_ref())
+        .await
+        .map_err(|e| {
+            eprintln!("Error fetching customers: {}", e);
+            AppError::Internal("Could not fetch customers".into())
     })?;
 
     let response = list.into_iter().map(|c| CustomerResponse {
@@ -414,6 +427,18 @@ pub struct TicketResponse {
     pub channel: String,
     pub customer_id: Uuid,
     pub assigned_agent_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TicketFilter {
+    pub status: Option<String>,
+    pub priority: Option<String>,
+    pub assigned_to: Option<i32>,
+    pub customer_id: Option<i32>,
+    pub from: Option<NaiveDate>,
+    pub to: Option<NaiveDate>,
+    pub limit: Option<u64>,
+    pub offset: Option<u64>,
 }
 
 // CREATE
@@ -568,9 +593,11 @@ pub async fn get_ticket_by_id(
     Ok(Json(ticket))
 }
 // GET /tickets — Admin only
+
 #[utoipa::path(
     get,
     path = "/tickets",
+    params(Pagination),
     responses(
         (status = 200, description = "List of all tickets", body = [TicketResponse])
     ),
@@ -579,15 +606,47 @@ pub async fn get_ticket_by_id(
 #[debug_handler]
 pub async fn get_all_tickets (
     State(state): State<AppState>,
-    auth: AuthUser
+    auth: AuthUser,
+    Query(pagination): Query<Pagination>,
+    Query(filter): Query<TicketFilter>,
 ) -> Result<impl IntoResponse, AppError> {
     require_role(&auth, "admin")?;
+    
+    let limit = pagination.limit.unwrap_or(10);
+    let offset = pagination.offset.unwrap_or(0);
 
     let db = &state.db;
-    let all_tickets = tickets::Entity::find()
+    let mut query = tickets::Entity::find();
+    if let Some(ref status) = filter.status {
+        query = query.filter(tickets::Column::Status.eq(status));
+    }
+
+    if let Some(ref priority) = filter.priority {
+        query = query.filter(tickets::Column::Priority.eq(priority));
+    }
+
+    if let Some(assigned_to) = filter.assigned_to {
+        query = query.filter(tickets::Column::AssignedAgentId.eq(assigned_to));
+    }
+
+    if let Some(customer_id) = filter.customer_id {
+        query = query.filter(tickets::Column::CustomerId.eq(customer_id));
+    }
+
+    if let Some(from) = filter.from {
+        query = query.filter(tickets::Column::CreatedAt.gte(from.and_hms(0, 0, 0)));
+    }
+
+    if let Some(to) = filter.to {
+        query = query.filter(tickets::Column::CreatedAt.lte(to.and_hms(23, 59, 59)));
+    }
+
+    let all_tickets = query
+        .limit(limit)
+        .offset(offset)
         .all(db.as_ref())
         .await
-        .map_err(|_| AppError::Internal("Database error".into()))?;
+        .map_err(AppError::Db)?;
 
     Ok(Json(all_tickets))
 }
@@ -886,6 +945,7 @@ pub async fn create_communication(
 #[utoipa::path(
     get,
     path = "/communications/{ticket_id}",
+    params(Pagination),
     responses(
         (status = 200, description = "List of communications", body = [CommunicationResponse])
     ),
@@ -895,16 +955,23 @@ pub async fn get_communications(
      Path(ticket_id): Path<String>,
     State(state): State<AppState>,
     auth: AuthUser,
-) -> Result<Json<Vec<CommunicationResponse>>, (StatusCode, String)> {
+    Query(pagination): Query<Pagination>,
+) -> Result<Json<Vec<CommunicationResponse>>, AppError> {
     let uuid = Uuid::parse_str(&ticket_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid ticket ID".into()))?;
+        .map_err(|_| AppError::BadRequest("Invalid ticket ID".into()))?;
 
 
     let db = &state.db;
-    let list = CommunicationEntity::find().all(db.as_ref()).await.map_err(|e| {
-        eprintln!("Fetch error: {}", e);
-        (StatusCode::INTERNAL_SERVER_ERROR, "Could not fetch communications".into())
-    })?;
+    let list = CommunicationEntity::find()
+        .filter(communications::Column::TicketId.eq(uuid))
+        .limit(pagination.limit.unwrap_or(10))
+        .offset(pagination.offset.unwrap_or(0))
+        .all(db.as_ref())
+        .await
+        .map_err(|e| {
+            eprintln!("Fetch error: {}", e);
+            AppError::Internal("Could not fetch communications".into())
+        })?;
 
     let visible = if auth.role == "customer" {
         list.into_iter().filter(|c| !c.is_internal).collect()
@@ -1325,6 +1392,7 @@ pub async fn create_analytics(
 #[utoipa::path(
     get,
     path = "/analytics",
+    params(Pagination),
     responses(
         (status = 200, description = "All analytics data", body = [AnalyticsResponse])
     ),
@@ -1332,12 +1400,19 @@ pub async fn create_analytics(
 )]
 pub async fn get_analytics(
     State(state): State<AppState>,
-) -> Result<Json<Vec<AnalyticsResponse>>, (StatusCode, String)> {
+    auth: AuthUser,
+    Query(pagination): Query<Pagination>,
+) -> Result<Json<Vec<AnalyticsResponse>>, AppError> {
     let db = &state.db;
 
-    let list = AnalyticsEntity::find().all(db.as_ref()).await.map_err(|e| {
-        eprintln!("Fetch error: {}", e);
-        (StatusCode::INTERNAL_SERVER_ERROR, "Could not fetch analytics".into())
+    let list = AnalyticsEntity::find()
+        .limit(pagination.limit.unwrap_or(10))
+        .offset(pagination.offset.unwrap_or(0))
+        .all(db.as_ref())
+        .await
+        .map_err(|e| {
+            eprintln!("Fetch error: {}", e);
+        AppError::Internal("Could not fetch analytics".into())
     })?;
 
     let response = list.into_iter().map(|a| AnalyticsResponse {
