@@ -9,7 +9,7 @@ use std::sync::Arc;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 pub use crate::doc::ApiDoc;
-use error_handle::AppError;
+// use error_handle::AppError;
 
 mod routes; 
 mod app_state;
@@ -29,7 +29,7 @@ async fn main() {
     let db_url = env::var("DB_url").expect("DATABASE_URL must be set");
     let db = Database::connect(&db_url)
         .await
-        .expect("Failed to connect to database");
+        .expect("Failed to connect to the database");
 
 
     let state = AppState {

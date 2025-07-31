@@ -437,8 +437,8 @@ pub struct TicketFilter {
     pub customer_id: Option<i32>,
     pub from: Option<NaiveDate>,
     pub to: Option<NaiveDate>,
-    pub limit: Option<u64>,
-    pub offset: Option<u64>,
+    // pub limit: Option<u64>,
+    // pub offset: Option<u64>,
 }
 
 // CREATE
@@ -634,11 +634,11 @@ pub async fn get_all_tickets (
     }
 
     if let Some(from) = filter.from {
-        query = query.filter(tickets::Column::CreatedAt.gte(from.and_hms(0, 0, 0)));
+        query = query.filter(tickets::Column::CreatedAt.gte(from.and_hms_opt(0, 0, 0)));
     }
 
     if let Some(to) = filter.to {
-        query = query.filter(tickets::Column::CreatedAt.lte(to.and_hms(23, 59, 59)));
+        query = query.filter(tickets::Column::CreatedAt.lte(to.and_hms_opt(23, 59, 59)));
     }
 
     let all_tickets = query
@@ -1400,7 +1400,7 @@ pub async fn create_analytics(
 )]
 pub async fn get_analytics(
     State(state): State<AppState>,
-    auth: AuthUser,
+    // auth: AuthUser,
     Query(pagination): Query<Pagination>,
 ) -> Result<Json<Vec<AnalyticsResponse>>, AppError> {
     let db = &state.db;

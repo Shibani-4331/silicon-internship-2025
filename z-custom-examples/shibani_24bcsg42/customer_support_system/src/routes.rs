@@ -1,7 +1,6 @@
 use axum::{
     Router,
     routing::{post, put, delete, get, patch },
-    extract::{State, Json},
 };
 use crate::api::{
     //get_my_tickets, get_ticket_details, customer_reply_ticket,
@@ -17,7 +16,6 @@ use crate::api::{
     // root_handler
 };
 use crate::app_state::AppState;
-use crate::auth::{AuthUser, require_role};
 
 
 

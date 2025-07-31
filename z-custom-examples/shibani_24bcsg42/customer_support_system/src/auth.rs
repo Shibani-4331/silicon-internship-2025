@@ -8,7 +8,7 @@ use once_cell::sync::Lazy;
 use std::env;
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
-use crate::error_handle::{AppError, ErrorResponse};
+use crate::error_handle::{AppError};
 
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -29,34 +29,34 @@ impl<S> FromRequestParts<S> for AuthUser
 where
     S: Send + Sync,
 {
-    type Rejection = (StatusCode, String);
+    type Rejection = (StatusCode, AppError);
 
     async fn from_request_parts(
         parts: &mut Parts,
         _state: &S,
     ) -> Result<Self, Self::Rejection> {
         let auth_header = parts.headers.get("Authorization")
-            .ok_or((StatusCode::UNAUTHORIZED, "Missing Authorization header".to_string()))?
+            .ok_or((AppError::Unauthorized, "Missing Authorization header".to_string()))?
             .to_str().map_err(|_| {
-                (StatusCode::BAD_REQUEST, "Invalid Authorization header".to_string())
+                (AppError::BadRequest, "Invalid Authorization header".to_string())
             })?;
 
         if !auth_header.starts_with("Bearer ") {
-            return Err((StatusCode::UNAUTHORIZED, "Invalid Authorization header".to_string()));
+           return Err((StatusCode::UNAUTHORIZED, AppError::Unauthorized("Invalid Authorization header".to_string())));
         }
 
         let token = auth_header.trim_start_matches("Bearer ").trim();
 
         let secret = env::var("JWT_SECRET")
-            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "JWT_SECRET not set".to_string()))?;
+                    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, AppError::Internal("JWT_SECRET not set".to_string())))?;
         let decoding_key = DecodingKey::from_secret(secret.as_bytes());
 
         let decoded = decode::<Claims>(
-            token,
-            &decoding_key,
-            &Validation::default()
-        ).map_err(|err| {
-            (StatusCode::UNAUTHORIZED, format!("Invalid token: {}", err))
+        token,
+        &decoding_key,
+        &Validation::default()
+         ).map_err(|_err| {
+            (StatusCode::UNAUTHORIZED, AppError::Unauthorized)
         })?;
 
         Ok(AuthUser {

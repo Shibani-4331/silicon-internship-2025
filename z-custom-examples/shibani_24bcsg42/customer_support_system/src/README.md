@@ -35,7 +35,8 @@ A scalable and feature-rich backend system built using "Rust + Axum", designed t
 
 ### 2. Project Structure
 
-project_root/ ├── src/ │   
+project_root/ ├── src/ 
+                 │   
                  ├── main.rs        # Entry point │   
                  ├── api.rs         # All handler functions │   
                  ├── routes.rs      # All route definitions │   
@@ -59,7 +60,7 @@ JWT_SECRET=your-secret-key
 cargo run
 
 Access Swagger UI at:
-📍 http://localhost:3000/swagger-ui
+📍 http://localhost:3000/
 
 
 ## Includes:
