@@ -4,9 +4,7 @@ use axum::{
 };
 use jsonwebtoken::{decode, DecodingKey, EncodingKey, Validation, Header, encode};
 use serde::{Deserialize, Serialize};
-use once_cell::sync::Lazy;
 use std::env;
-use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use crate::error_handle::{AppError};
 
@@ -36,13 +34,14 @@ where
         _state: &S,
     ) -> Result<Self, Self::Rejection> {
         let auth_header = parts.headers.get("Authorization")
-            .ok_or((AppError::Unauthorized, "Missing Authorization header".to_string()))?
+            .ok_or((StatusCode::UNAUTHORIZED, AppError::Unauthorized))?
             .to_str().map_err(|_| {
-                (AppError::BadRequest, "Invalid Authorization header".to_string())
-            })?;
+                (StatusCode::BAD_REQUEST, AppError::BadRequest("Invalid Authorization header".to_string()))
+        })?;
+
 
         if !auth_header.starts_with("Bearer ") {
-           return Err((StatusCode::UNAUTHORIZED, AppError::Unauthorized("Invalid Authorization header".to_string())));
+           return Err((StatusCode::UNAUTHORIZED, AppError::Unauthorized));
         }
 
         let token = auth_header.trim_start_matches("Bearer ").trim();

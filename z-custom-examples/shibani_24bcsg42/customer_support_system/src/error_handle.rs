@@ -13,7 +13,7 @@ pub struct ErrorResponse {
 
 #[derive(Debug)]
 pub enum AppError {
-    Db(DbErr),
+    Db(()),
     NotFound(String),
     Unauthorized,
     Forbidden,
@@ -38,8 +38,8 @@ impl IntoResponse for AppError {
 }
 
 impl From<DbErr> for AppError {
-    fn from(err: DbErr) -> Self {
-        AppError::Db(err)
+    fn from(_err: DbErr) -> Self {
+        AppError::Db(())
     }
 }
 

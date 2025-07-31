@@ -1,12 +1,11 @@
 use axum::{
     response::IntoResponse,
     extract::{State, Path, Query},
-    Router,
     http::StatusCode,
     Json,
 };
 use axum::debug_handler;
-use chrono::{NaiveDate, Duration}; 
+use chrono::{NaiveDate}; 
 use sea_orm::{EntityTrait, Set, ActiveModelTrait, DatabaseConnection, QueryFilter, ColumnTrait, ModelTrait, Condition, QuerySelect};
 use serde::{Deserialize, Serialize};
 use sqlx::types::chrono::Utc;
@@ -22,15 +21,7 @@ use crate::entity::knowledge_base;
 use crate::entity::tags;
 use crate::entity::analytics;   
 use crate::entity::audit_logs;
-use crate::entity::users::Entity as UserEntity;
-use crate::entity::customers::Entity as CustomerEntity;
-use crate::entity::tickets::Entity as TicketEntity;
-use crate::entity::communications::Entity as CommunicationEntity;
-use crate::entity::knowledge_base::Entity as KBEntity;
-use crate::entity::tags::Entity as TagEntity;
-use crate::entity::analytics::Entity as AnalyticsEntity;
-use crate::entity::audit_logs::Entity as AuditLogEntity;
-use crate::auth::{generate_jwt, AuthUser, require_role};
+use crate::auth::{AuthUser, require_role};
 use utoipa::{ToSchema, IntoParams}; 
 use crate::auth;
 use crate::error_handle::AppError;
@@ -68,7 +59,7 @@ pub async fn login_user(
         .filter(users::Column::Email.eq(input.email.clone()))
         .one(state.db.as_ref())
         .await
-        .map_err(AppError::Db)?
+        .map_err(|_| AppError::Db(()))?
         .ok_or(AppError::Unauthorized)?;
 
 
@@ -517,7 +508,7 @@ pub async fn assign_ticket(
     let mut ticket = tickets::Entity::find_by_id(uuid)
         .one(db.as_ref())
         .await
-        .map_err(AppError::Db)?
+        .map_err(|_| AppError::Db(()))?
         .ok_or(AppError::NotFound("Ticket not found".into()))?;
 
     ticket.assigned_agent_id = Some(uuid::Uuid::parse_str(&input.agent_id)
@@ -646,7 +637,7 @@ pub async fn get_all_tickets (
         .offset(offset)
         .all(db.as_ref())
         .await
-        .map_err(AppError::Db)?;
+        .map_err(|_| AppError::Db(()))?;
 
     Ok(Json(all_tickets))
 }
@@ -697,7 +688,7 @@ pub async fn update_ticket_status(
     let ticket = tickets::Entity::find_by_id(id)
         .one(db.as_ref())
         .await
-        .map_err(AppError::Db)?
+        .map_err(|_| AppError::Db(()))?
         .ok_or(AppError::NotFound("Ticket not found".into()))?;
 
     can_edit_ticket(&auth, &ticket)?;
@@ -736,7 +727,7 @@ pub async fn update_ticket_priority(
     let ticket = tickets::Entity::find_by_id(id)
         .one(db.as_ref())
         .await
-        .map_err(AppError::Db)?
+        .map_err(|_| AppError::Db(()))?
         .ok_or(AppError::NotFound("Ticket not found".into()))?;
 
     can_edit_ticket(&auth, &ticket)?;
@@ -804,7 +795,7 @@ pub async fn get_filtered_tickets(
         .filter(condition)
         .all(db.as_ref())
         .await
-        .map_err(AppError::Db)?;
+        .map_err(|_| AppError::Db(()))?;
 
     let response = result.into_iter().map(|ticket| TicketResponse::from(ticket)).collect::<Vec<_>>();
 
@@ -855,7 +846,7 @@ pub async fn delete_ticket_by_id(
     let ticket = tickets::Entity::find_by_id(uuid)
         .one(db.as_ref())
         .await
-        .map_err(AppError::Db)?
+        .map_err(|_| AppError::Db(()))?
         .ok_or(AppError::NotFound("Ticket not found".into()))?;
 
     can_delete_ticket(&auth, &ticket)?; 
@@ -1071,7 +1062,7 @@ pub async fn get_all_articles(
     let articles = knowledge_base::Entity::find()
         .all(db.as_ref())
         .await
-        .map_err(AppError::Db)?;
+        .map_err(|_| AppError::Db(()))?;
 
     let response = articles
         .into_iter()
@@ -1449,7 +1440,7 @@ pub async fn get_analytics_by_id(
     let found = analytics::Entity::find_by_id(uuid)
         .one(db.as_ref())
         .await
-        .map_err(AppError::Db)?
+        .map_err(|_| AppError::Db(()))?
         .ok_or(AppError::NotFound("Not found".into()))?;
 
     Ok(Json(AnalyticsResponse {

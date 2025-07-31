@@ -15,7 +15,6 @@ mod routes;
 mod app_state;
 mod entity;
 mod api;
-use entity::prelude::*;
 mod auth;
 mod doc;
 mod error_handle;
